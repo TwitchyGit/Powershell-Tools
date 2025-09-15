@@ -105,15 +105,14 @@ $nlaEnabled = Try-Run { [bool](Get-ItemProperty -Path $nlaRegPath -Name 'UserAut
 $netAccounts = Try-Run { (net accounts) -join "`n" }
 
 # Certificates (LocalMachine\My) — summary only to avoid huge output
-$certs = Try-Run { 
-    Get-ChildItem Cert:\LocalMachine\My | Select-Object Subject, Thumbprint, NotAfter
-}
-$certSummary = if ($certs) {
+$certs = Try-Run { @(Get-ChildItem Cert:\LocalMachine\My) }
+
+$certSummary = if ($certs -and $certs.Count -gt 0) {
     [pscustomobject]@{
-        Total           = $certs.Count
-        ExpiringIn30d   = ($certs | Where-Object { $_.NotAfter -le (Get-Date).AddDays(30) }).Count
-        ExpiringIn90d   = ($certs | Where-Object { $_.NotAfter -le (Get-Date).AddDays(90) }).Count
-        LatestExpiry    = ($certs | Sort-Object NotAfter -Descending | Select-Object -First 1 -ExpandProperty NotAfter)
+        Total         = $certs.Count
+        ExpiringIn30d = ($certs | Where-Object { $_.NotAfter -le (Get-Date).AddDays(30) }).Count
+        ExpiringIn90d = ($certs | Where-Object { $_.NotAfter -le (Get-Date).AddDays(90) }).Count
+        LatestExpiry  = ($certs | Sort-Object NotAfter -Descending | Select-Object -First 1 -ExpandProperty NotAfter)
     }
 } else { $null }
 
