@@ -141,18 +141,21 @@ $regPaths = @(
 
 $apps = Get-ItemProperty $regPaths -ErrorAction SilentlyContinue |
     ForEach-Object {
-        # some entries dont expose DisplayName at all
-        $hasDisplayName = $_.PSObject.Properties.Match('DisplayName').Count -gt 0
-        if (-not $hasDisplayName) { return }
+        # require a real DisplayName
+        $hasDN = $_.PSObject.Properties.Match('DisplayName').Count -gt 0 -and -not [string]::IsNullOrWhiteSpace($_.DisplayName)
+        if (-not $hasDN) { return }
 
-        if ([string]::IsNullOrWhiteSpace($_.DisplayName)) { return }
+        $dispVer   = if ($_.PSObject.Properties.Match('DisplayVersion').Count) { $_.DisplayVersion } else { $null }
+        $publisher = if ($_.PSObject.Properties.Match('Publisher').Count)      { $_.Publisher }      else { $null }
+        $install   = if ($_.PSObject.Properties.Match('InstallDate').Count)    { $_.InstallDate }    else { $null }
+        $uninst    = if ($_.PSObject.Properties.Match('UninstallString').Count){ $_.UninstallString }else { $null }
 
         [pscustomobject]@{
             Name            = $_.DisplayName
-            Version         = $_.DisplayVersion
-            Publisher       = $_.Publisher
-            InstalledOn     = Parse-InstallDate $_.InstallDate
-            UninstallString = $_.UninstallString
+            Version         = $dispVer
+            Publisher       = $publisher
+            InstalledOn     = Parse-InstallDate $install
+            UninstallString = $uninst
         }
     } | Sort-Object Name
 
