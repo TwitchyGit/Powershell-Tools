@@ -133,16 +133,17 @@ $regPaths = @(
     'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
 )
 
-$apps = foreach ($i in Get-ItemProperty $regPaths -ErrorAction SilentlyContinue) {
-    if (-not $i.DisplayName) { continue }
-    [pscustomobject]@{
-        Name        = $i.DisplayName
-        Version     = $i.DisplayVersion
-        Publisher   = $i.Publisher
-        InstalledOn = Parse-InstallDate $i.InstallDate
-        UninstallString = $i.UninstallString
-    }
-} | Sort-Object Name
+$apps = Get-ItemProperty $regPaths -ErrorAction SilentlyContinue |
+    Where-Object { $_.DisplayName } |
+    ForEach-Object {
+        [pscustomobject]@{
+            Name            = $_.DisplayName
+            Version         = $_.DisplayVersion
+            Publisher       = $_.Publisher
+            InstalledOn     = Parse-InstallDate $_.InstallDate
+            UninstallString = $_.UninstallString
+        }
+    } | Sort-Object Name
 
 $updates = Get-HotFix | Select-Object @{n='Name';e={$_.HotFixID}},
                                   @{n='Description';e={$_.Description}},
