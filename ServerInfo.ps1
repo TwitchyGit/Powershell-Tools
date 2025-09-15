@@ -1,222 +1,326 @@
 <# 
 .SYNOPSIS
-  Windows Server quick inventory (PS 5.1 compatible)
+  Windows Server inventory (PS 5.1). Single CSV with section headings.
 
-.OUTPUTS
-  C:\Temp\ServerInventory-<timestamp>.json        # full structured report
-  C:\Temp\InstalledSoftware-<timestamp>.csv
-  C:\Temp\InstalledUpdates-<timestamp>.csv
-  C:\Temp\InstalledRolesFeatures-<timestamp>.csv
+.SECTIONS
+  System Identity
+  Operating System
+  Security & Identity
+  Software & Updates
+  Networking
+  Windows Roles & Features
+
+.OUTPUT
+  C:\Temp\ServerInventory-<timestamp>.csv
 #>
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-#--- helpers ---------------------------------------------------------------
-
-function New-DirIfMissing {
-    param([string]$Path)
-    if (-not (Test-Path -LiteralPath $Path)) {
-        New-Item -ItemType Directory -Path $Path | Out-Null
-    }
+# -------- helpers --------
+function New-DirIfMissing { param([string]$Path)
+  if (-not (Test-Path -LiteralPath $Path)) { New-Item -ItemType Directory -Path $Path | Out-Null }
 }
 
-function Parse-InstallDate {
-    param($raw)
-    if ([string]::IsNullOrWhiteSpace($raw)) { return $null }
-    if ($raw -is [datetime]) { return $raw }
-    # common registry format is yyyyMMdd
-    if ($raw -match '^\d{8}$') {
-        return [datetime]::ParseExact($raw,'yyyyMMdd',$null)
-    }
-    # try general cast as fallback
-    try { return [datetime]$raw } catch { return $null }
+function Try-Run { param([scriptblock]$Script,[object]$Default=$null)
+  try { & $Script } catch { $Default }
 }
 
-function Try-Run {
-    param([scriptblock]$Script, [object]$Default=$null)
-    try { & $Script } catch { $Default }
+function Parse-InstallDate { param($raw)
+  if ([string]::IsNullOrWhiteSpace($raw)) { return $null }
+  if ($raw -is [datetime]) { return $raw }
+  if ($raw -match '^\d{8}$') { return [datetime]::ParseExact($raw,'yyyyMMdd',$null) }
+  try { return [datetime]$raw } catch { return $null }
 }
 
-#--- output file roots -----------------------------------------------------
+function Add-HeadingRow { param([string]$Title)
+  [pscustomobject]@{
+    Section      = "=== $Title ==="
+    Item         = $null
+    Name         = $null
+    Version      = $null
+    Publisher    = $null
+    InstalledOn  = $null
+    Details      = $null
+  }
+}
 
+# -------- output target --------
 $OutRoot = 'C:\Temp'
 New-DirIfMissing $OutRoot
-$stamp  = (Get-Date).ToString('yyyyMMdd-HHmmss')
-$jsonOut = Join-Path $OutRoot "ServerInventory-$stamp.json"
-$csvApps = Join-Path $OutRoot "InstalledSoftware-$stamp.csv"
-$csvHfx  = Join-Path $OutRoot "InstalledUpdates-$stamp.csv"
-$csvFeat = Join-Path $OutRoot "InstalledRolesFeatures-$stamp.csv"
+$stamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
+$outCsv = Join-Path $OutRoot "ServerInventory-$stamp.csv"
 
-#--- System Identity ----------------------------------------------------
+# master row list (uniform columns for one CSV)
+$rows = New-Object System.Collections.Generic.List[object]
+
+# =====================================================================================
+# 1) System Identity
+# =====================================================================================
+$rows.Add((Add-HeadingRow 'System Identity'))
 
 $cs   = Get-CimInstance -ClassName Win32_ComputerSystem
 $bios = Get-CimInstance -ClassName Win32_BIOS
-$enc  = Try-Run { Get-CimInstance -ClassName Win32_SystemEnclosure } # for AssetTag, may be null
+$enc  = Try-Run { Get-CimInstance -ClassName Win32_SystemEnclosure }
 
-$systemIdentity = [pscustomobject]@{
-    ComputerName = $env:COMPUTERNAME
-    Domain       = $cs.Domain
-    Workgroup    = if ($cs.PartOfDomain) { $null } else { $cs.Workgroup }
-    Manufacturer = $cs.Manufacturer
-    Model        = $cs.Model
-    SerialNumber = $bios.SerialNumber
-    BIOSVersion  = ($bios.SMBIOSBIOSVersion)
-    BIOSRelease  = Try-Run { [datetime]::ParseExact(($bios.ReleaseDate),'yyyyMMddHHmmss.fffffff+000',$null) }
-    AssetTag     = Try-Run { ($enc.SMBIOSAssetTag -join ', ') }
-    MACAddresses = (Get-NetAdapter | Where-Object {$_.Status -eq 'Up'} | Select-Object -ExpandProperty MacAddress)
-    IPv4         = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object {$_.IPAddress -ne '127.0.0.1'} | Select-Object -ExpandProperty IPAddress)
-    IPv6         = (Get-NetIPAddress -AddressFamily IPv6 | Select-Object -ExpandProperty IPAddress)
+$macs = Get-NetAdapter | Where-Object Status -eq 'Up' | Select-Object -ExpandProperty MacAddress
+$ipv4 = Get-NetIPAddress -AddressFamily IPv4 | Where-Object IPAddress -ne '127.0.0.1' | Select-Object -ExpandProperty IPAddress
+$ipv6 = Get-NetIPAddress -AddressFamily IPv6 | Select-Object -ExpandProperty IPAddress
+
+$sysPairs = @(
+  @{K='ComputerName';V=$env:COMPUTERNAME}
+  @{K='Domain';      V=$cs.Domain}
+  @{K='Workgroup';   V=($(if ($cs.PartOfDomain) { $null } else { $cs.Workgroup }))}
+  @{K='Manufacturer';V=$cs.Manufacturer}
+  @{K='Model';       V=$cs.Model}
+  @{K='SerialNumber';V=$bios.SerialNumber}
+  @{K='BIOSVersion'; V=$bios.SMBIOSBIOSVersion}
+  @{K='AssetTag';    V=(Try-Run { ($enc.SMBIOSAssetTag -join ', ') })}
+  @{K='MACAddresses';V=($macs -join '; ')}
+  @{K='IPv4';        V=($ipv4 -join '; ')}
+  @{K='IPv6';        V=($ipv6 -join '; ')}
+)
+
+foreach ($p in $sysPairs) {
+  $rows.Add([pscustomobject]@{
+    Section     = 'System Identity'
+    Item        = $p.K
+    Name        = $null
+    Version     = $null
+    Publisher   = $null
+    InstalledOn = $null
+    Details     = $p.V
+  })
 }
 
-#--- Operating System ---------------------------------------------------
+# =====================================================================================
+# 2) Operating System
+# =====================================================================================
+$rows.Add((Add-HeadingRow 'Operating System'))
 
 $os = Get-CimInstance -ClassName Win32_OperatingSystem
 $installDate = Try-Run { [Management.ManagementDateTimeConverter]::ToDateTime($os.InstallDate) }
 $lastBoot    = Try-Run { [Management.ManagementDateTimeConverter]::ToDateTime($os.LastBootUpTime) }
 $uptimeDays  = if ($lastBoot) { [math]::Round((New-TimeSpan -Start $lastBoot -End (Get-Date)).TotalDays,2) } else { $null }
+$tz          = Try-Run { (Get-TimeZone).Id }
+$ntpCfg      = Try-Run { (w32tm /query /configuration) -join ' ' }
 
-$tz = Try-Run { Get-TimeZone }
-$ntpConfig = Try-Run { (w32tm /query /configuration) -join "`n" }
+$osPairs = @(
+  @{K='Caption';     V=$os.Caption}
+  @{K='Version';     V=$os.Version}
+  @{K='BuildNumber'; V=$os.BuildNumber}
+  @{K='InstallDate'; V=$installDate}
+  @{K='LastBoot';    V=$lastBoot}
+  @{K='UptimeDays';  V=$uptimeDays}
+  @{K='TimeZone';    V=$tz}
+  @{K='NtpConfig';   V=$ntpCfg}
+)
 
-$operatingSystem = [pscustomobject]@{
-    Caption        = $os.Caption
-    Version        = $os.Version
-    BuildNumber    = $os.BuildNumber
-    InstallDate    = $installDate
-    LastBoot       = $lastBoot
-    UptimeDays     = $uptimeDays
-    TimeZone       = $tz.Id
-    NtpConfigText  = $ntpConfig
+foreach ($p in $osPairs) {
+  $rows.Add([pscustomobject]@{
+    Section     = 'Operating System'
+    Item        = $p.K
+    Name        = $null
+    Version     = $null
+    Publisher   = $null
+    InstalledOn = $null
+    Details     = $p.V
+  })
 }
 
-#--- Security & Identity -----------------------------------------------
+# =====================================================================================
+# 3) Security & Identity
+# =====================================================================================
+$rows.Add((Add-HeadingRow 'Security & Identity'))
 
-# Local Administrators (works on member servers)
-$localAdmins = Try-Run { Get-LocalGroupMember -Group 'Administrators' | Select-Object Name, ObjectClass }
+$localAdmins = Try-Run { Get-LocalGroupMember -Group 'Administrators' | Select-Object -ExpandProperty Name }
+$rdpRegPath  = 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server'
+$nlaRegPath  = 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp'
+$rdpEnabled  = Try-Run { -not [bool](Get-ItemProperty -Path $rdpRegPath -Name 'fDenyTSConnections').fDenyTSConnections }
+$nlaEnabled  = Try-Run { [bool](Get-ItemProperty -Path $nlaRegPath -Name 'UserAuthentication').UserAuthentication }
+$netAccounts = Try-Run { (net accounts) -join ' ' }
 
-# RDP & NLA via registry (no RSAT dependency)
-$rdpRegPath = 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server'
-$nlaRegPath = 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp'
-$rdpEnabled = Try-Run { -not [bool](Get-ItemProperty -Path $rdpRegPath -Name 'fDenyTSConnections').fDenyTSConnections }
-$nlaEnabled = Try-Run { [bool](Get-ItemProperty -Path $nlaRegPath -Name 'UserAuthentication').UserAuthentication }
+# cert summary — defensive
+$certs   = Try-Run { Get-ChildItem Cert:\LocalMachine\My }
+$certs   = @($certs) | Where-Object { $_ }
+$certCnt = ($certs | Measure-Object).Count
+$exp30   = ($certs | Where-Object { $_.NotAfter -le (Get-Date).AddDays(30) } | Measure-Object).Count
+$exp90   = ($certs | Where-Object { $_.NotAfter -le (Get-Date).AddDays(90) } | Measure-Object).Count
+$latest  = if ($certCnt -gt 0) { $certs | Sort-Object NotAfter -Descending | Select-Object -First 1 -ExpandProperty NotAfter } else { $null }
 
-# Password policy snapshot (simple)
-$netAccounts = Try-Run { (net accounts) -join "`n" }
+$secPairs = @(
+  @{K='LocalAdministrators'; V=($localAdmins -join '; ')}
+  @{K='RdpEnabled';          V=$rdpEnabled}
+  @{K='NlaEnabled';          V=$nlaEnabled}
+  @{K='PasswordPolicy';      V=$netAccounts}
+  @{K='CertsTotal';          V=$certCnt}
+  @{K='CertsExpiringIn30d';  V=$exp30}
+  @{K='CertsExpiringIn90d';  V=$exp90}
+  @{K='CertLatestExpiry';    V=$latest}
+)
 
-
-# Certificates (LocalMachine\My) — summary only to avoid huge output
-$certs = Try-Run { Get-ChildItem Cert:\LocalMachine\My }     # may be $null or a single object
-$certs = @($certs) | Where-Object { $_ }                      # force array and drop nulls
-$certCount = ($certs | Measure-Object).Count                  # safe count even if empty
-
-$certSummary = if ($certCount -gt 0) {
-    $exp30 = ($certs | Where-Object { $_.NotAfter -le (Get-Date).AddDays(30) } | Measure-Object).Count
-    $exp90 = ($certs | Where-Object { $_.NotAfter -le (Get-Date).AddDays(90) } | Measure-Object).Count
-    $latest = $certs | Sort-Object NotAfter -Descending | Select-Object -First 1 -ExpandProperty NotAfter
-
-    [pscustomobject]@{
-        Total         = $certCount
-        ExpiringIn30d = $exp30
-        ExpiringIn90d = $exp90
-        LatestExpiry  = $latest
-    }
-} else { $null }
-
-$securityIdentity = [pscustomobject]@{
-    LocalAdministrators = $localAdmins
-    RdpEnabled          = $rdpEnabled
-    NlaEnabled          = $nlaEnabled
-    PasswordPolicyText  = $netAccounts
-    CertSummary         = $certSummary
+foreach ($p in $secPairs) {
+  $rows.Add([pscustomobject]@{
+    Section     = 'Security & Identity'
+    Item        = $p.K
+    Name        = $null
+    Version     = $null
+    Publisher   = $null
+    InstalledOn = $null
+    Details     = $p.V
+  })
 }
 
-#--- Software & Updates -------------------------------------------------
+# =====================================================================================
+# 4) Software & Updates
+# =====================================================================================
+$rows.Add((Add-HeadingRow 'Software & Updates'))
 
-# Installed software from both 64/32-bit uninstall keys with proper InstalledOn
+# Installed Software (defensive property access, no UninstallString)
 $regPaths = @(
-    'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
-    'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+  'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
+  'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
 )
 
 $apps = Get-ItemProperty $regPaths -ErrorAction SilentlyContinue |
-    ForEach-Object {
-        # require a real DisplayName
-        $hasDN = $_.PSObject.Properties.Match('DisplayName').Count -gt 0 -and -not [string]::IsNullOrWhiteSpace($_.DisplayName)
-        if (-not $hasDN) { return }
+  ForEach-Object {
+    $hasDN = $_.PSObject.Properties.Match('DisplayName').Count -gt 0 -and -not [string]::IsNullOrWhiteSpace($_.DisplayName)
+    if (-not $hasDN) { return }
 
-        $dispVer   = if ($_.PSObject.Properties.Match('DisplayVersion').Count) { $_.DisplayVersion } else { $null }
-        $publisher = if ($_.PSObject.Properties.Match('Publisher').Count)      { $_.Publisher }      else { $null }
-        $install   = if ($_.PSObject.Properties.Match('InstallDate').Count)    { $_.InstallDate }    else { $null }
-        $uninst    = if ($_.PSObject.Properties.Match('UninstallString').Count){ $_.UninstallString }else { $null }
+    $dispVer   = if ($_.PSObject.Properties.Match('DisplayVersion').Count) { $_.DisplayVersion } else { $null }
+    $publisher = if ($_.PSObject.Properties.Match('Publisher').Count)      { $_.Publisher }      else { $null }
+    $install   = if ($_.PSObject.Properties.Match('InstallDate').Count)    { $_.InstallDate }    else { $null }
 
-        [pscustomobject]@{
-            Name            = $_.DisplayName
-            Version         = $dispVer
-            Publisher       = $publisher
-            InstalledOn     = Parse-InstallDate $install
-            UninstallString = $uninst
-        }
-    } | Sort-Object Name
+    [pscustomobject]@{
+      Name        = $_.DisplayName
+      Version     = $dispVer
+      Publisher   = $publisher
+      InstalledOn = Parse-InstallDate $install
+    }
+  } | Sort-Object Name
 
-$updates = Get-HotFix | Select-Object @{n='Name';e={$_.HotFixID}},
-                                  @{n='Description';e={$_.Description}},
-                                  @{n='InstalledBy';e={$_.InstalledBy}},
-                                  @{n='InstalledOn';e={$_.InstalledOn}} |
-           Sort-Object InstalledOn
-
-#--- Networking ---------------------------------------------------------
-
-$adapters = Get-NetAdapter | Select-Object Name, InterfaceDescription, Status, LinkSpeed, MacAddress
-$ips      = Get-NetIPAddress | Select-Object InterfaceAlias, AddressFamily, IPAddress, PrefixLength
-$dns      = Get-DnsClientServerAddress | Select-Object InterfaceAlias, AddressFamily, ServerAddresses
-$routes   = Get-NetRoute -DestinationPrefix '0.0.0.0/0','::/0' -ErrorAction SilentlyContinue |
-            Select-Object DestinationPrefix, InterfaceAlias, NextHop, RouteMetric
-$fwProf   = Get-NetFirewallProfile | Select-Object Name, Enabled, DefaultInboundAction, DefaultOutboundAction
-$listens  = Try-Run { Get-NetTCPConnection -State Listen | Select-Object LocalAddress, LocalPort, OwningProcess }
-
-$networking = [pscustomobject]@{
-    Adapters        = $adapters
-    IPAddresses     = $ips
-    DnsServers      = $dns
-    DefaultRoutes   = $routes
-    FirewallProfile = $fwProf
-    ListeningTcp    = $listens
+foreach ($a in $apps) {
+  $rows.Add([pscustomobject]@{
+    Section     = 'Software & Updates'
+    Item        = 'InstalledSoftware'
+    Name        = $a.Name
+    Version     = $a.Version
+    Publisher   = $a.Publisher
+    InstalledOn = $a.InstalledOn
+    Details     = $null
+  })
 }
 
-#--- Windows Roles & Features ------------------------------------------
+# Windows Updates / Hotfixes
+$updates = Get-HotFix | Select-Object HotFixID, Description, InstalledBy, InstalledOn | Sort-Object InstalledOn
+
+foreach ($u in $updates) {
+  $rows.Add([pscustomobject]@{
+    Section     = 'Software & Updates'
+    Item        = 'InstalledUpdate'
+    Name        = $u.HotFixID
+    Version     = $u.Description
+    Publisher   = $u.InstalledBy
+    InstalledOn = $u.InstalledOn
+    Details     = $null
+  })
+}
+
+# =====================================================================================
+# 5) Networking
+# =====================================================================================
+$rows.Add((Add-HeadingRow 'Networking'))
+
+$adapters = Get-NetAdapter | Select-Object Name, InterfaceDescription, Status, LinkSpeed, MacAddress
+foreach ($ad in $adapters) {
+  $rows.Add([pscustomobject]@{
+    Section     = 'Networking'
+    Item        = 'Adapter'
+    Name        = $ad.Name
+    Version     = $null
+    Publisher   = $null
+    InstalledOn = $null
+    Details     = "Desc=$($ad.InterfaceDescription); Status=$($ad.Status); Speed=$($ad.LinkSpeed); MAC=$($ad.MacAddress)"
+  })
+}
+
+$ips = Get-NetIPAddress | Select-Object InterfaceAlias, AddressFamily, IPAddress, PrefixLength
+foreach ($ip in $ips) {
+  $rows.Add([pscustomobject]@{
+    Section     = 'Networking'
+    Item        = 'IP'
+    Name        = $ip.InterfaceAlias
+    Version     = $ip.AddressFamily
+    Publisher   = $null
+    InstalledOn = $null
+    Details     = "$($ip.IPAddress)/$($ip.PrefixLength)"
+  })
+}
+
+$dns = Get-DnsClientServerAddress | Select-Object InterfaceAlias, AddressFamily, ServerAddresses
+foreach ($d in $dns) {
+  $rows.Add([pscustomobject]@{
+    Section     = 'Networking'
+    Item        = 'DNS'
+    Name        = $d.InterfaceAlias
+    Version     = $d.AddressFamily
+    Publisher   = $null
+    InstalledOn = $null
+    Details     = ($d.ServerAddresses -join '; ')
+  })
+}
+
+$routes = Get-NetRoute -DestinationPrefix '0.0.0.0/0','::/0' -ErrorAction SilentlyContinue |
+          Select-Object DestinationPrefix, InterfaceAlias, NextHop, RouteMetric
+foreach ($r in $routes) {
+  $rows.Add([pscustomobject]@{
+    Section     = 'Networking'
+    Item        = 'DefaultRoute'
+    Name        = $r.InterfaceAlias
+    Version     = $null
+    Publisher   = $null
+    InstalledOn = $null
+    Details     = "$($r.DestinationPrefix) via $($r.NextHop) metric $($r.RouteMetric)"
+  })
+}
+
+$fwProf = Get-NetFirewallProfile | Select-Object Name, Enabled, DefaultInboundAction, DefaultOutboundAction
+foreach ($fp in $fwProf) {
+  $rows.Add([pscustomobject]@{
+    Section     = 'Networking'
+    Item        = 'FirewallProfile'
+    Name        = $fp.Name
+    Version     = $null
+    Publisher   = $null
+    InstalledOn = $null
+    Details     = "Enabled=$($fp.Enabled); Inbound=$($fp.DefaultInboundAction); Outbound=$($fp.DefaultOutboundAction)"
+  })
+}
+
+# =====================================================================================
+# 6) Windows Roles & Features
+# =====================================================================================
+$rows.Add((Add-HeadingRow 'Windows Roles & Features'))
 
 Import-Module ServerManager -ErrorAction SilentlyContinue
 $rolesFeatures = Try-Run { 
-    Get-WindowsFeature | Where-Object {$_.InstallState -eq 'Installed'} |
-        Select-Object Name, DisplayName, InstallState, FeatureType
+  Get-WindowsFeature | Where-Object InstallState -eq 'Installed' |
+    Select-Object Name, DisplayName, FeatureType
 }
 
-#--- assemble master report ------------------------------------------------
-
-$report = [pscustomobject]@{
-    CollectedAtUTC    = (Get-Date).ToUniversalTime()
-    SystemIdentity    = $systemIdentity
-    OperatingSystem   = $operatingSystem
-    SecurityIdentity  = $securityIdentity
-    Software          = $apps
-    Updates           = $updates
-    Networking        = $networking
-    RolesAndFeatures  = $rolesFeatures
+foreach ($rf in $rolesFeatures) {
+  $rows.Add([pscustomobject]@{
+    Section     = 'Windows Roles & Features'
+    Item        = $rf.FeatureType
+    Name        = $rf.Name
+    Version     = $null
+    Publisher   = $null
+    InstalledOn = $null
+    Details     = $rf.DisplayName
+  })
 }
 
-#--- write outputs ---------------------------------------------------------
+# -------- write one CSV --------
+$rows | Export-Csv -Path $outCsv -NoTypeInformation -Encoding UTF8
 
-# JSON (full report)
-$report | ConvertTo-Json -Depth 6 | Out-File -FilePath $jsonOut -Encoding UTF8
-
-# CSVs for common slices
-$apps        | Export-Csv $csvApps -NoTypeInformation -Encoding UTF8
-$updates     | Export-Csv $csvHfx  -NoTypeInformation -Encoding UTF8
-$rolesFeatures | Export-Csv $csvFeat -NoTypeInformation -Encoding UTF8
-
-Write-Host "Inventory complete."
-Write-Host "Report: $jsonOut"
-Write-Host "Apps:   $csvApps"
-Write-Host "Updates:$csvHfx"
-Write-Host "Roles:  $csvFeat"
+Write-Host "Done. Single CSV written to: $outCsv"
