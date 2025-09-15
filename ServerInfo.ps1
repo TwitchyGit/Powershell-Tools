@@ -140,8 +140,13 @@ $regPaths = @(
 )
 
 $apps = Get-ItemProperty $regPaths -ErrorAction SilentlyContinue |
-    Where-Object { $_.DisplayName } |
     ForEach-Object {
+        # some entries dont expose DisplayName at all
+        $hasDisplayName = $_.PSObject.Properties.Match('DisplayName').Count -gt 0
+        if (-not $hasDisplayName) { return }
+
+        if ([string]::IsNullOrWhiteSpace($_.DisplayName)) { return }
+
         [pscustomobject]@{
             Name            = $_.DisplayName
             Version         = $_.DisplayVersion
