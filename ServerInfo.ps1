@@ -104,15 +104,22 @@ $nlaEnabled = Try-Run { [bool](Get-ItemProperty -Path $nlaRegPath -Name 'UserAut
 # Password policy snapshot (simple)
 $netAccounts = Try-Run { (net accounts) -join "`n" }
 
-# Certificates (LocalMachine\My) — summary only to avoid huge output
-$certs = Try-Run { @(Get-ChildItem Cert:\LocalMachine\My) }
 
-$certSummary = if ($certs -and $certs.Count -gt 0) {
+# Certificates (LocalMachine\My) — summary only to avoid huge output
+$certs = Try-Run { Get-ChildItem Cert:\LocalMachine\My }     # may be $null or a single object
+$certs = @($certs) | Where-Object { $_ }                      # force array and drop nulls
+$certCount = ($certs | Measure-Object).Count                  # safe count even if empty
+
+$certSummary = if ($certCount -gt 0) {
+    $exp30 = ($certs | Where-Object { $_.NotAfter -le (Get-Date).AddDays(30) } | Measure-Object).Count
+    $exp90 = ($certs | Where-Object { $_.NotAfter -le (Get-Date).AddDays(90) } | Measure-Object).Count
+    $latest = $certs | Sort-Object NotAfter -Descending | Select-Object -First 1 -ExpandProperty NotAfter
+
     [pscustomobject]@{
-        Total         = $certs.Count
-        ExpiringIn30d = ($certs | Where-Object { $_.NotAfter -le (Get-Date).AddDays(30) }).Count
-        ExpiringIn90d = ($certs | Where-Object { $_.NotAfter -le (Get-Date).AddDays(90) }).Count
-        LatestExpiry  = ($certs | Sort-Object NotAfter -Descending | Select-Object -First 1 -ExpandProperty NotAfter)
+        Total         = $certCount
+        ExpiringIn30d = $exp30
+        ExpiringIn90d = $exp90
+        LatestExpiry  = $latest
     }
 } else { $null }
 
