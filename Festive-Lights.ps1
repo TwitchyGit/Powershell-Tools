@@ -67,7 +67,8 @@ function Update-AnimatedElements {
             # Left side
             $xLeft = [int]($i - $Iteration)
             if ($xLeft -ge 0 -and $xLeft -lt $XPos - 5) { # Stop before the tree
-                $color = $colors[($i + $Iteration + $k) % $colors.Length]
+                $colorIndex = Get-Random -Maximum $colors.Length
+                $color = $colors[$colorIndex]
                 [Console]::SetCursorPosition($xLeft, $y)
                 Write-Host "o" -ForegroundColor $color -NoNewline
             }
@@ -75,7 +76,8 @@ function Update-AnimatedElements {
             # Right side
             $xRight = [int](($i - $Iteration) + ($winWidth / 2))
             if ($xRight -gt $XPos + 5 -and $xRight -lt $winWidth) { # Start after the tree
-                $color = $colors[($i + $Iteration + $k) % $colors.Length]
+                $colorIndex = Get-Random -Maximum $colors.Length
+                $color = $colors[$colorIndex]
                 [Console]::SetCursorPosition($xRight, $y)
                 Write-Host "o" -ForegroundColor $color -NoNewline
             }
@@ -97,7 +99,8 @@ function Update-AnimatedElements {
                 continue # Skip if the position is within the tree
             }
 
-            $starColor = $StarColors[Get-Random -Minimum 0 -Maximum ($StarColors.Length)]
+            $starColorIndex = Get-Random -Maximum $StarColors.Length
+            $starColor = $StarColors[$starColorIndex]
             [Console]::SetCursorPosition($x, $y)
             Write-Host "." -ForegroundColor $starColor -NoNewline
         }
@@ -117,7 +120,8 @@ function Update-AnimatedElements {
 
                 # Set the cursor and change the color of the star
                 [Console]::SetCursorPosition($x, $treeY + $y)
-                $lightColor = $colors[Get-Random -Minimum 0 -Maximum ($colors.Length)]
+                $lightColorIndex = Get-Random -Maximum $colors.Length
+                $lightColor = $colors[$lightColorIndex]
                 Write-Host "*" -ForegroundColor $lightColor -NoNewline
             }
         }
