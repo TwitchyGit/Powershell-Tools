@@ -26,7 +26,9 @@ param(
     [Parameter(Mandatory=$true)]
     [string]$CyberArkURL,
     
-    [string]$LogPath = "C:\Temp\ADCyberArkCompare_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+    [string]$LogPath = "C:\Temp\ADCyberArkCompare_$(Get-Date -Format 'yyyyMMdd_HHmmss').log",
+    
+    [switch]$ShowMatchedOnly
 )
 
 # Suppress all warning and information streams for Autosys
@@ -106,7 +108,7 @@ try {
         Write-Output-Safe "Processing AD group: $group"
         try {
             $groupMembers = Get-ADGroupMember -Identity $group -Recursive -ErrorAction Stop 2>$null | 
-                           Get-ADUser -Properties SamAccountName, DisplayName, mail, c, co -ErrorAction Stop 2>$null
+                           Get-ADUser -Properties SamAccountName, DisplayName, mail, c, co, CanonicalName -ErrorAction Stop 2>$null
             
             foreach ($user in $groupMembers) {
                 # Use hash to avoid duplicates across multiple groups
@@ -161,6 +163,7 @@ try {
     # Find discrepancies
     $inADNotInCyberArk = $adUserNames | Where-Object { $_ -notin $cyberArkUserNames }
     $inCyberArkNotInAD = $cyberArkUserNames | Where-Object { $_ -notin $adUserNames }
+    $inBothADAndCyberArk = $cyberArkUserNames | Where-Object { $_ -in $adUserNames }
     
     Write-Output-Safe ""
     Write-Output-Safe "================================================================================"
@@ -168,44 +171,83 @@ try {
     Write-Output-Safe "================================================================================"
     Write-Output-Safe ""
     
-    # Display users in AD but not in CyberArk
-    Write-Output-Safe ">>> USERS IN AD GROUPS BUT NOT IN CYBERARK <<<"
-    Write-Output-Safe "-------------------------------------------------------------------------------"
-    if ($inADNotInCyberArk.Count -gt 0) {
-        Write-Output-Safe "Count: $($inADNotInCyberArk.Count)"
-        Write-Output-Safe ""
-        foreach ($user in $inADNotInCyberArk) {
-            $adUser = $allADUsers | Where-Object { $_.SamAccountName -eq $user } | Select-Object -First 1
-            $displayName = if ($adUser.DisplayName) { $adUser.DisplayName } else { "N/A" }
-            $email = if ($adUser.mail) { $adUser.mail } else { "N/A" }
-            $country = if ($adUser.c) { $adUser.c } elseif ($adUser.co) { $adUser.co } else { "N/A" }
-            Write-Output-Safe "$user, $displayName, $email, $country"
+    # If ShowMatchedOnly flag is set, only display matched users
+    if ($ShowMatchedOnly) {
+        Write-Output-Safe ">>> USERS IN BOTH AD AND CYBERARK <<<"
+        Write-Output-Safe "-------------------------------------------------------------------------------"
+        Write-Output-Safe "Username, DisplayName, Email, Location"
+        Write-Output-Safe "-------------------------------------------------------------------------------"
+        
+        if ($inBothADAndCyberArk.Count -gt 0) {
+            Write-Output-Safe "Count: $($inBothADAndCyberArk.Count)"
+            Write-Output-Safe ""
+            foreach ($user in $inBothADAndCyberArk) {
+                $cyberArkUser = $filteredCyberArkUsers | Where-Object { $_.UserName -eq $user } | Select-Object -First 1
+                $firstName = if ($cyberArkUser.FirstName) { $cyberArkUser.FirstName } else { "" }
+                $lastName = if ($cyberArkUser.LastName) { $cyberArkUser.LastName } else { "" }
+                $fullName = "$firstName $lastName".Trim()
+                if (-not $fullName) { $fullName = "N/A" }
+                $email = if ($cyberArkUser.Email) { $cyberArkUser.Email } else { "N/A" }
+                $location = if ($cyberArkUser.Location) { $cyberArkUser.Location } else { "N/A" }
+                Write-Output-Safe "$user, $fullName, $email, $location"
+            }
+        } else {
+            Write-Output-Safe "None - No matching users found"
         }
-    } else {
-        Write-Output-Safe "None - All AD users exist in CyberArk"
-    }
-    Write-Output-Safe ""
-    
-    # Display users in CyberArk but not in AD
-    Write-Output-Safe ">>> USERS IN CYBERARK BUT NOT IN AD GROUPS <<<"
-    Write-Output-Safe "-------------------------------------------------------------------------------"
-    if ($inCyberArkNotInAD.Count -gt 0) {
-        Write-Output-Safe "Count: $($inCyberArkNotInAD.Count)"
         Write-Output-Safe ""
-        foreach ($user in $inCyberArkNotInAD) {
-            $cyberArkUser = $filteredCyberArkUsers | Where-Object { $_.UserName -eq $user } | Select-Object -First 1
-            $firstName = if ($cyberArkUser.FirstName) { $cyberArkUser.FirstName } else { "" }
-            $lastName = if ($cyberArkUser.LastName) { $cyberArkUser.LastName } else { "" }
-            $fullName = "$firstName $lastName".Trim()
-            if (-not $fullName) { $fullName = "N/A" }
-            $email = if ($cyberArkUser.Email) { $cyberArkUser.Email } else { "N/A" }
-            $location = if ($cyberArkUser.Location) { $cyberArkUser.Location } else { "N/A" }
-            Write-Output-Safe "$user, $fullName, $email, $location"
-        }
     } else {
-        Write-Output-Safe "None - All CyberArk users exist in AD"
+        # Display users in AD but not in CyberArk
+        Write-Output-Safe ">>> USERS IN AD GROUPS BUT NOT IN CYBERARK <<<"
+        Write-Output-Safe "-------------------------------------------------------------------------------"
+        Write-Output-Safe "Username, DisplayName, Email, Country, ADDomain"
+        Write-Output-Safe "-------------------------------------------------------------------------------"
+        
+        if ($inADNotInCyberArk.Count -gt 0) {
+            Write-Output-Safe "Count: $($inADNotInCyberArk.Count)"
+            Write-Output-Safe ""
+            foreach ($user in $inADNotInCyberArk) {
+                $adUser = $allADUsers | Where-Object { $_.SamAccountName -eq $user } | Select-Object -First 1
+                $displayName = if ($adUser.DisplayName) { $adUser.DisplayName } else { "N/A" }
+                $email = if ($adUser.mail) { $adUser.mail } else { "N/A" }
+                $country = if ($adUser.c) { $adUser.c } elseif ($adUser.co) { $adUser.co } else { "N/A" }
+                
+                # Extract domain from CanonicalName (e.g., "domain.com/Users/John Smith" -> "domain.com")
+                $domain = "N/A"
+                if ($adUser.CanonicalName) {
+                    $domain = ($adUser.CanonicalName -split '/')[0]
+                }
+                
+                Write-Output-Safe "$user, $displayName, $email, $country, $domain"
+            }
+        } else {
+            Write-Output-Safe "None - All AD users exist in CyberArk"
+        }
+        Write-Output-Safe ""
+        
+        # Display users in CyberArk but not in AD
+        Write-Output-Safe ">>> USERS IN CYBERARK BUT NOT IN AD GROUPS <<<"
+        Write-Output-Safe "-------------------------------------------------------------------------------"
+        Write-Output-Safe "Username, DisplayName, Email, Location"
+        Write-Output-Safe "-------------------------------------------------------------------------------"
+        
+        if ($inCyberArkNotInAD.Count -gt 0) {
+            Write-Output-Safe "Count: $($inCyberArkNotInAD.Count)"
+            Write-Output-Safe ""
+            foreach ($user in $inCyberArkNotInAD) {
+                $cyberArkUser = $filteredCyberArkUsers | Where-Object { $_.UserName -eq $user } | Select-Object -First 1
+                $firstName = if ($cyberArkUser.FirstName) { $cyberArkUser.FirstName } else { "" }
+                $lastName = if ($cyberArkUser.LastName) { $cyberArkUser.LastName } else { "" }
+                $fullName = "$firstName $lastName".Trim()
+                if (-not $fullName) { $fullName = "N/A" }
+                $email = if ($cyberArkUser.Email) { $cyberArkUser.Email } else { "N/A" }
+                $location = if ($cyberArkUser.Location) { $cyberArkUser.Location } else { "N/A" }
+                Write-Output-Safe "$user, $fullName, $email, $location"
+            }
+        } else {
+            Write-Output-Safe "None - All CyberArk users exist in AD"
+        }
+        Write-Output-Safe ""
     }
-    Write-Output-Safe ""
     
     # Summary by region
     Write-Output-Safe "================================================================================"
@@ -230,8 +272,14 @@ try {
     Write-Output-Safe "AD Groups Processed: $($ADGroups -join ', ')"
     Write-Output-Safe "Total Unique AD Users: $($adUserNames.Count)"
     Write-Output-Safe "Total CyberArk Users (filtered): $($cyberArkUserNames.Count)"
-    Write-Output-Safe "In AD but not CyberArk: $($inADNotInCyberArk.Count)"
-    Write-Output-Safe "In CyberArk but not AD: $($inCyberArkNotInAD.Count)"
+    
+    if ($ShowMatchedOnly) {
+        Write-Output-Safe "Users in BOTH AD and CyberArk: $($inBothADAndCyberArk.Count)"
+    } else {
+        Write-Output-Safe "In AD but not CyberArk: $($inADNotInCyberArk.Count)"
+        Write-Output-Safe "In CyberArk but not AD: $($inCyberArkNotInAD.Count)"
+        Write-Output-Safe "In BOTH AD and CyberArk: $($inBothADAndCyberArk.Count)"
+    }
     Write-Output-Safe "================================================================================"
     
     # Close CyberArk session
@@ -241,26 +289,47 @@ try {
     # Export detailed report
     $detailsReport = @()
     
-    foreach ($user in $inADNotInCyberArk) {
-        $adUser = $allADUsers | Where-Object { $_.SamAccountName -eq $user } | Select-Object -First 1
-        $country = if ($adUser.c) { $adUser.c } elseif ($adUser.co) { $adUser.co } else { "N/A" }
-        $detailsReport += [PSCustomObject]@{
-            Username = $user
-            DisplayName = $adUser.DisplayName
-            Email = $adUser.mail
-            Country = $country
-            Location = "AD Only"
+    if ($ShowMatchedOnly) {
+        # Export matched users only
+        foreach ($user in $inBothADAndCyberArk) {
+            $cyberArkUser = $filteredCyberArkUsers | Where-Object { $_.UserName -eq $user } | Select-Object -First 1
+            $detailsReport += [PSCustomObject]@{
+                Username = $user
+                DisplayName = "$($cyberArkUser.FirstName) $($cyberArkUser.LastName)".Trim()
+                Email = $cyberArkUser.Email
+                Location = $cyberArkUser.Location
+                Status = "Matched"
+            }
         }
-    }
-    
-    foreach ($user in $inCyberArkNotInAD) {
-        $cyberArkUser = $filteredCyberArkUsers | Where-Object { $_.UserName -eq $user } | Select-Object -First 1
-        $detailsReport += [PSCustomObject]@{
-            Username = $user
-            DisplayName = "$($cyberArkUser.FirstName) $($cyberArkUser.LastName)".Trim()
-            Email = $cyberArkUser.Email
-            Country = "N/A"
-            Location = $cyberArkUser.Location
+    } else {
+        # Export all discrepancies
+        foreach ($user in $inADNotInCyberArk) {
+            $adUser = $allADUsers | Where-Object { $_.SamAccountName -eq $user } | Select-Object -First 1
+            $country = if ($adUser.c) { $adUser.c } elseif ($adUser.co) { $adUser.co } else { "N/A" }
+            $domain = "N/A"
+            if ($adUser.CanonicalName) {
+                $domain = ($adUser.CanonicalName -split '/')[0]
+            }
+            $detailsReport += [PSCustomObject]@{
+                Username = $user
+                DisplayName = $adUser.DisplayName
+                Email = $adUser.mail
+                Country = $country
+                ADDomain = $domain
+                Location = "AD Only"
+            }
+        }
+        
+        foreach ($user in $inCyberArkNotInAD) {
+            $cyberArkUser = $filteredCyberArkUsers | Where-Object { $_.UserName -eq $user } | Select-Object -First 1
+            $detailsReport += [PSCustomObject]@{
+                Username = $user
+                DisplayName = "$($cyberArkUser.FirstName) $($cyberArkUser.LastName)".Trim()
+                Email = $cyberArkUser.Email
+                Country = "N/A"
+                ADDomain = "N/A"
+                Location = $cyberArkUser.Location
+            }
         }
     }
     
