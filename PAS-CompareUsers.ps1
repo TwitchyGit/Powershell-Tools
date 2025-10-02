@@ -16,19 +16,15 @@
 #                           -Region "EMEA" `
 #                           -LogPath "D:\Logs\CyberArk\comparison.log"
 
-# Compare AD Group Members with CyberArk PAM External Users by Region
-# PowerShell 5.1 compatible - Autosys ready (stdout/stderr only)
-# Requires: ActiveDirectory module and psPAS module
-
 param(
     [Parameter(Mandatory=$true)]
-    [string]$ADGroupName,
+    [string]$ConfigModule,
+    
+    [Parameter(Mandatory=$true)]
+    [string]$CredentialFile,
     
     [Parameter(Mandatory=$true)]
     [string]$CyberArkURL,
-    
-    [Parameter(Mandatory=$true)]
-    [string]$Region,
     
     [string]$LogPath = "C:\Temp\ADCyberArkCompare_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
 )
@@ -58,39 +54,109 @@ function Write-Error-Safe {
     }
 }
 
+# Function to securely clear credentials from memory
+function Clear-Credentials {
+    param($Credential)
+    if ($Credential -ne $null) {
+        $Credential.Password.Dispose()
+        $Credential = $null
+    }
+}
+
 try {
     # Import required modules
     Import-Module ActiveDirectory -ErrorAction Stop 2>$null
     Import-Module psPAS -ErrorAction Stop 2>$null
     
-    Write-Output-Safe "Starting comparison for Region: $Region"
+    Write-Output-Safe "Starting AD and CyberArk comparison"
     Write-Output-Safe "================================================================================"
     
-    # Get AD Group Members filtered by region
-    Write-Output-Safe "Retrieving AD group members from: $ADGroupName"
-    $adUsers = Get-ADGroupMember -Identity $ADGroupName -Recursive -ErrorAction Stop 2>$null | 
-               Get-ADUser -Properties SamAccountName, DisplayName, mail, c, co -ErrorAction Stop 2>$null | 
-               Where-Object { $_.c -eq $Region -or $_.co -eq $Region }
+    # Import configuration module
+    Write-Output-Safe "Importing configuration from: $ConfigModule"
+    if (-not (Test-Path $ConfigModule)) {
+        throw "Configuration module not found: $ConfigModule"
+    }
+    Import-Module $ConfigModule -Force -ErrorAction Stop 2>$null
     
-    Write-Output-Safe "Found $($adUsers.Count) AD users in region $Region"
+    # Validate configuration variables
+    if (-not $regions) {
+        throw "Variable `$regions not found in configuration module"
+    }
+    if (-not $ADGroups) {
+        throw "Variable `$ADGroups not found in configuration module"
+    }
+    
+    Write-Output-Safe "Regions to process: $($regions -join ', ')"
+    Write-Output-Safe "AD Groups to process: $($ADGroups -join ', ')"
+    
+    # Import credentials securely from CliXml
+    Write-Output-Safe "Importing credentials from: $CredentialFile"
+    if (-not (Test-Path $CredentialFile)) {
+        throw "Credential file not found: $CredentialFile"
+    }
+    $creds = Import-Clixml -Path $CredentialFile -ErrorAction Stop
+    Write-Output-Safe "Credentials imported successfully"
+    
+    # Get all AD users from all specified groups
+    Write-Output-Safe "Retrieving AD group members from all specified groups..."
+    $allADUsers = @()
+    $adUserHash = @{}
+    
+    foreach ($group in $ADGroups) {
+        Write-Output-Safe "Processing AD group: $group"
+        try {
+            $groupMembers = Get-ADGroupMember -Identity $group -Recursive -ErrorAction Stop 2>$null | 
+                           Get-ADUser -Properties SamAccountName, DisplayName, mail, c, co -ErrorAction Stop 2>$null
+            
+            foreach ($user in $groupMembers) {
+                # Use hash to avoid duplicates across multiple groups
+                if (-not $adUserHash.ContainsKey($user.SamAccountName)) {
+                    $adUserHash[$user.SamAccountName] = $user
+                    $allADUsers += $user
+                }
+            }
+            Write-Output-Safe "  Found $($groupMembers.Count) members in $group"
+        } catch {
+            Write-Error-Safe "Failed to process AD group ${group}: $($_.Exception.Message)"
+        }
+    }
+    
+    Write-Output-Safe "Total unique AD users found: $($allADUsers.Count)"
     
     # Connect to CyberArk
     Write-Output-Safe "Connecting to CyberArk at: $CyberArkURL"
-    $creds = Get-Credential -Message "Enter CyberArk credentials"
+    try {
+        New-PASSession -BaseURI $CyberArkURL -Credential $creds -type CyberArk -ErrorAction Stop 2>$null
+        Write-Output-Safe "Connected to CyberArk successfully"
+    } catch {
+        throw "Failed to connect to CyberArk: $($_.Exception.Message)"
+    } finally {
+        # Clear credentials from memory immediately after use
+        Clear-Credentials -Credential $creds
+        $creds = $null
+        Write-Output-Safe "Credentials cleared from memory"
+    }
     
-    New-PASSession -BaseURI $CyberArkURL -Credential $creds -type CyberArk -ErrorAction Stop 2>$null
-    Write-Output-Safe "Connected to CyberArk successfully"
+    # Get all CyberArk external users where Location contains any of the regions
+    Write-Output-Safe "Retrieving CyberArk external users for all regions..."
+    $allCyberArkUsers = Get-PASUser -UserType EPVUser -ExtendedDetails $true -ErrorAction Stop 2>$null
     
-    # Get CyberArk external users filtered by region
-    Write-Output-Safe "Retrieving CyberArk external users for region: $Region"
-    $cyberArkUsers = Get-PASUser -UserType EPVUser -ExtendedDetails $true -ErrorAction Stop 2>$null | 
-                     Where-Object { $_.Location -eq $Region }
+    # Filter users by region (Location contains region)
+    $filteredCyberArkUsers = @()
+    foreach ($user in $allCyberArkUsers) {
+        foreach ($region in $regions) {
+            if ($user.Location -like "*$region*") {
+                $filteredCyberArkUsers += $user
+                break
+            }
+        }
+    }
     
-    Write-Output-Safe "Found $($cyberArkUsers.Count) CyberArk users in region $Region"
+    Write-Output-Safe "Total CyberArk users matching regions: $($filteredCyberArkUsers.Count)"
     
     # Create comparison lists
-    $adUserNames = $adUsers | Select-Object -ExpandProperty SamAccountName
-    $cyberArkUserNames = $cyberArkUsers | Select-Object -ExpandProperty UserName
+    $adUserNames = $allADUsers | Select-Object -ExpandProperty SamAccountName | Sort-Object -Unique
+    $cyberArkUserNames = $filteredCyberArkUsers | Select-Object -ExpandProperty UserName | Sort-Object -Unique
     
     # Find discrepancies
     $inADNotInCyberArk = $adUserNames | Where-Object { $_ -notin $cyberArkUserNames }
@@ -98,21 +164,22 @@ try {
     
     Write-Output-Safe ""
     Write-Output-Safe "================================================================================"
-    Write-Output-Safe "COMPARISON RESULTS FOR REGION: $Region"
+    Write-Output-Safe "COMPARISON RESULTS - ALL REGIONS: $($regions -join ', ')"
     Write-Output-Safe "================================================================================"
     Write-Output-Safe ""
     
     # Display users in AD but not in CyberArk
-    Write-Output-Safe ">>> USERS IN AD GROUP BUT NOT IN CYBERARK <<<"
+    Write-Output-Safe ">>> USERS IN AD GROUPS BUT NOT IN CYBERARK <<<"
     Write-Output-Safe "-------------------------------------------------------------------------------"
     if ($inADNotInCyberArk.Count -gt 0) {
         Write-Output-Safe "Count: $($inADNotInCyberArk.Count)"
         Write-Output-Safe ""
         foreach ($user in $inADNotInCyberArk) {
-            $adUser = $adUsers | Where-Object { $_.SamAccountName -eq $user }
+            $adUser = $allADUsers | Where-Object { $_.SamAccountName -eq $user } | Select-Object -First 1
             $displayName = if ($adUser.DisplayName) { $adUser.DisplayName } else { "N/A" }
             $email = if ($adUser.mail) { $adUser.mail } else { "N/A" }
-            Write-Output-Safe "$user, $displayName, $email"
+            $country = if ($adUser.c) { $adUser.c } elseif ($adUser.co) { $adUser.co } else { "N/A" }
+            Write-Output-Safe "$user, $displayName, $email, $country"
         }
     } else {
         Write-Output-Safe "None - All AD users exist in CyberArk"
@@ -120,33 +187,49 @@ try {
     Write-Output-Safe ""
     
     # Display users in CyberArk but not in AD
-    Write-Output-Safe ">>> USERS IN CYBERARK BUT NOT IN AD GROUP <<<"
+    Write-Output-Safe ">>> USERS IN CYBERARK BUT NOT IN AD GROUPS <<<"
     Write-Output-Safe "-------------------------------------------------------------------------------"
     if ($inCyberArkNotInAD.Count -gt 0) {
         Write-Output-Safe "Count: $($inCyberArkNotInAD.Count)"
         Write-Output-Safe ""
         foreach ($user in $inCyberArkNotInAD) {
-            $cyberArkUser = $cyberArkUsers | Where-Object { $_.UserName -eq $user }
+            $cyberArkUser = $filteredCyberArkUsers | Where-Object { $_.UserName -eq $user } | Select-Object -First 1
             $firstName = if ($cyberArkUser.FirstName) { $cyberArkUser.FirstName } else { "" }
             $lastName = if ($cyberArkUser.LastName) { $cyberArkUser.LastName } else { "" }
             $fullName = "$firstName $lastName".Trim()
             if (-not $fullName) { $fullName = "N/A" }
             $email = if ($cyberArkUser.Email) { $cyberArkUser.Email } else { "N/A" }
-            Write-Output-Safe "$user, $fullName, $email"
+            $location = if ($cyberArkUser.Location) { $cyberArkUser.Location } else { "N/A" }
+            Write-Output-Safe "$user, $fullName, $email, $location"
         }
     } else {
         Write-Output-Safe "None - All CyberArk users exist in AD"
     }
     Write-Output-Safe ""
     
-    # Summary
+    # Summary by region
     Write-Output-Safe "================================================================================"
-    Write-Output-Safe "SUMMARY"
+    Write-Output-Safe "SUMMARY BY REGION"
     Write-Output-Safe "================================================================================"
-    Write-Output-Safe "Region: $Region"
-    Write-Output-Safe "AD Group: $ADGroupName"
-    Write-Output-Safe "Total AD Users: $($adUsers.Count)"
-    Write-Output-Safe "Total CyberArk Users: $($cyberArkUsers.Count)"
+    
+    foreach ($region in $regions) {
+        $regionADUsers = $allADUsers | Where-Object { $_.c -eq $region -or $_.co -eq $region }
+        $regionCyberArkUsers = $filteredCyberArkUsers | Where-Object { $_.Location -like "*$region*" }
+        
+        Write-Output-Safe "Region: $region"
+        Write-Output-Safe "  AD Users: $($regionADUsers.Count)"
+        Write-Output-Safe "  CyberArk Users: $($regionCyberArkUsers.Count)"
+        Write-Output-Safe ""
+    }
+    
+    # Overall Summary
+    Write-Output-Safe "================================================================================"
+    Write-Output-Safe "OVERALL SUMMARY"
+    Write-Output-Safe "================================================================================"
+    Write-Output-Safe "Regions Processed: $($regions -join ', ')"
+    Write-Output-Safe "AD Groups Processed: $($ADGroups -join ', ')"
+    Write-Output-Safe "Total Unique AD Users: $($adUserNames.Count)"
+    Write-Output-Safe "Total CyberArk Users (filtered): $($cyberArkUserNames.Count)"
     Write-Output-Safe "In AD but not CyberArk: $($inADNotInCyberArk.Count)"
     Write-Output-Safe "In CyberArk but not AD: $($inCyberArkNotInAD.Count)"
     Write-Output-Safe "================================================================================"
@@ -159,24 +242,25 @@ try {
     $detailsReport = @()
     
     foreach ($user in $inADNotInCyberArk) {
-        $adUser = $adUsers | Where-Object { $_.SamAccountName -eq $user }
+        $adUser = $allADUsers | Where-Object { $_.SamAccountName -eq $user } | Select-Object -First 1
+        $country = if ($adUser.c) { $adUser.c } elseif ($adUser.co) { $adUser.co } else { "N/A" }
         $detailsReport += [PSCustomObject]@{
             Username = $user
             DisplayName = $adUser.DisplayName
             Email = $adUser.mail
+            Country = $country
             Location = "AD Only"
-            Region = $Region
         }
     }
     
     foreach ($user in $inCyberArkNotInAD) {
-        $cyberArkUser = $cyberArkUsers | Where-Object { $_.UserName -eq $user }
+        $cyberArkUser = $filteredCyberArkUsers | Where-Object { $_.UserName -eq $user } | Select-Object -First 1
         $detailsReport += [PSCustomObject]@{
             Username = $user
             DisplayName = "$($cyberArkUser.FirstName) $($cyberArkUser.LastName)".Trim()
             Email = $cyberArkUser.Email
-            Location = "CyberArk Only"
-            Region = $Region
+            Country = "N/A"
+            Location = $cyberArkUser.Location
         }
     }
     
@@ -194,6 +278,12 @@ try {
 } catch {
     Write-Error-Safe "ERROR: $($_.Exception.Message)"
     Write-Error-Safe "Script failed at line $($_.InvocationInfo.ScriptLineNumber)"
+    
+    # Ensure credentials are cleared even on error
+    if ($creds -ne $null) {
+        Clear-Credentials -Credential $creds
+        $creds = $null
+    }
     
     # Exit code 1 for failure
     exit 1
