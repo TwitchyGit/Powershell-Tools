@@ -17,21 +17,47 @@ if (-not (Test-Path $goldenSourcePath)) {
     New-Item -Path $goldenSourcePath -ItemType Directory | Out-Null
 }
 
-# Collect all files from source folders
+# Collect all files from golden source and source folders
 $allFiles = @{}
+
+# First, collect files from golden source
+if (Test-Path $goldenSourcePath) {
+    Get-ChildItem -Path $goldenSourcePath -File -Recurse | ForEach-Object {
+        $relativePath = $_.FullName.Substring($goldenSourcePath.Length).TrimStart('\')
+        
+        if (-not $allFiles.ContainsKey($relativePath)) {
+            $allFiles[$relativePath] = @{
+                Golden = $null
+                Sources = @()
+            }
+        }
+        
+        $allFiles[$relativePath].Golden = @{
+            FullPath = $_.FullName
+            LastWriteTime = $_.LastWriteTime
+            Exists = $true
+        }
+    }
+}
+
+# Then collect files from source folders
 foreach ($folder in $sourceFolders) {
     if (Test-Path $folder) {
         Get-ChildItem -Path $folder -File -Recurse | ForEach-Object {
             $relativePath = $_.FullName.Substring($folder.Length).TrimStart('\')
             
             if (-not $allFiles.ContainsKey($relativePath)) {
-                $allFiles[$relativePath] = @()
+                $allFiles[$relativePath] = @{
+                    Golden = @{ Exists = $false }
+                    Sources = @()
+                }
             }
             
-            $allFiles[$relativePath] += @{
+            $allFiles[$relativePath].Sources += @{
                 FullPath = $_.FullName
                 LastWriteTime = $_.LastWriteTime
                 SourceFolder = $folder
+                FolderName = Split-Path $folder -Leaf
             }
         }
     }
@@ -40,8 +66,9 @@ foreach ($folder in $sourceFolders) {
 # Process files and build report
 $report = @()
 foreach ($fileName in $allFiles.Keys) {
-    $fileVersions = $allFiles[$fileName]
-    $latest = $fileVersions | Sort-Object -Property LastWriteTime -Descending | Select-Object -First 1
+    $fileInfo = $allFiles[$fileName]
+    $goldenFile = $fileInfo.Golden
+    $sourceFiles = $fileInfo.Sources
     
     $destinationPath = Join-Path $goldenSourcePath $fileName
     $destinationDir = Split-Path $destinationPath -Parent
@@ -50,53 +77,63 @@ foreach ($fileName in $allFiles.Keys) {
         New-Item -Path $destinationDir -ItemType Directory -Force | Out-Null
     }
     
-    $action = "New"
-    $goldenExists = Test-Path $destinationPath
+    # Find the latest version across all sources
+    $latest = $sourceFiles | Sort-Object -Property LastWriteTime -Descending | Select-Object -First 1
     
-    if ($goldenExists) {
-        $goldenFile = Get-Item $destinationPath
-        if ($goldenFile.LastWriteTime -lt $latest.LastWriteTime) {
-            $action = "Updated"
-        } else {
-            $action = "No Change"
-        }
+    # Check which folders have this file
+    $foundInFolders = ($sourceFiles | ForEach-Object { $_.FolderName }) -join ", "
+    $missingInFolders = $sourceFolders | Where-Object {
+        $folderName = Split-Path $_ -Leaf
+        $folderName -notin ($sourceFiles | ForEach-Object { $_.FolderName })
+    } | ForEach-Object { Split-Path $_ -Leaf }
+    $missingIn = if ($missingInFolders) { $missingInFolders -join ", " } else { "None" }
+    
+    # Check if all versions match (including golden source if it exists)
+    $allTimestamps = @()
+    if ($goldenFile.Exists) {
+        $allTimestamps += $goldenFile.LastWriteTime
+    }
+    $allTimestamps += $sourceFiles | ForEach-Object { $_.LastWriteTime }
+    $uniqueTimestamps = $allTimestamps | Select-Object -Unique
+    $allMatch = ($uniqueTimestamps.Count -eq 1) -and ($sourceFiles.Count -eq $sourceFolders.Count) -and $goldenFile.Exists
+    
+    # Determine action
+    $action = "No Change"
+    if (-not $goldenFile.Exists) {
+        $action = "New"
+    } elseif ($latest -and $goldenFile.LastWriteTime -lt $latest.LastWriteTime) {
+        $action = "Updated"
     }
     
-    $missingInGolden = -not $goldenExists
+    # Build differences summary
+    $differences = @()
+    if ($goldenFile.Exists) {
+        $differences += "Golden ($($goldenFile.LastWriteTime))"
+    } else {
+        $differences += "Golden (Missing)"
+    }
     
+    foreach ($sf in $sourceFiles) {
+        $differences += "$($sf.FolderName) ($($sf.LastWriteTime))"
+    }
+    
+    $differencesText = if ($allMatch) { "All Match" } else { $differences -join "; " }
+    
+    # Copy file if needed
     if ($action -ne "No Change") {
         Copy-Item -Path $latest.FullPath -Destination $destinationPath -Force
     }
     
-    # Check if all versions have the same timestamp
-    $allTimestamps = $fileVersions | ForEach-Object { $_.LastWriteTime }
-    $uniqueTimestamps = $allTimestamps | Select-Object -Unique
-    $allMatch = $uniqueTimestamps.Count -eq 1
-    
-    # Build list of all source folders containing this file
-    $allSourceFolders = ($fileVersions | ForEach-Object { Split-Path $_.SourceFolder -Leaf }) -join ", "
-    
-    # Build differences summary
-    $differences = if ($allMatch) {
-        "All Match"
-    } else {
-        $fileVersions | ForEach-Object {
-            $folderName = Split-Path $_.SourceFolder -Leaf
-            "$folderName ($($_.LastWriteTime))"
-        } | ForEach-Object { $_ -join "; " }
-        $differences -join "; "
-    }
-    
     $report += [PSCustomObject]@{
         FileName = $fileName
+        GoldenExists = $goldenFile.Exists
         Action = $action
-        FoundIn = $allSourceFolders
-        VersionCount = $fileVersions.Count
         AllMatch = $allMatch
-        Differences = $differences
-        SelectedFrom = Split-Path $latest.SourceFolder -Leaf
-        SelectedDate = $latest.LastWriteTime
-        MissingInGolden = $missingInGolden
+        FoundIn = $foundInFolders
+        MissingIn = $missingIn
+        LatestInFolder = if ($latest) { $latest.FolderName } else { "N/A" }
+        LatestDate = if ($latest) { $latest.LastWriteTime } else { $null }
+        Differences = $differencesText
     }
 }
 
