@@ -1,9 +1,12 @@
-# Golden Source File Comparison
+# Golden Source File Consolidator
 # Consolidates the latest version of files from multiple source folders
 
 param(
-    [Parameter(Mandatory=$true)] [string]$GoldenSourcePath,
-    [Parameter(Mandatory=$true, ValueFromRemainingArguments=$true)] [string[]]$SourceFolders
+    [Parameter(Mandatory=$true)]
+    [string]$GoldenSourcePath,
+    
+    [Parameter(Mandatory=$true, ValueFromRemainingArguments=$true)]
+    [string[]]$SourceFolders
 )
 
 $goldenSourcePath = $GoldenSourcePath
@@ -11,8 +14,7 @@ $sourceFolders = $SourceFolders
 
 # Create golden source folder if it doesn't exist
 if (-not (Test-Path $goldenSourcePath)) {
-    Write-Output "ERROR: $goldenSourcePath does not exist"
-    exit 1
+    New-Item -Path $goldenSourcePath -ItemType Directory | Out-Null
 }
 
 # Collect all files from source folders
@@ -48,14 +50,53 @@ foreach ($fileName in $allFiles.Keys) {
         New-Item -Path $destinationDir -ItemType Directory -Force | Out-Null
     }
     
-    Copy-Item -Path $latest.FullPath -Destination $destinationPath -Force
+    $action = "New"
+    $goldenExists = Test-Path $destinationPath
+    
+    if ($goldenExists) {
+        $goldenFile = Get-Item $destinationPath
+        if ($goldenFile.LastWriteTime -lt $latest.LastWriteTime) {
+            $action = "Updated"
+        } else {
+            $action = "No Change"
+        }
+    }
+    
+    $missingInGolden = -not $goldenExists
+    
+    if ($action -ne "No Change") {
+        Copy-Item -Path $latest.FullPath -Destination $destinationPath -Force
+    }
+    
+    # Check if all versions have the same timestamp
+    $allTimestamps = $fileVersions | ForEach-Object { $_.LastWriteTime }
+    $uniqueTimestamps = $allTimestamps | Select-Object -Unique
+    $allMatch = $uniqueTimestamps.Count -eq 1
+    
+    # Build list of all source folders containing this file
+    $allSourceFolders = ($fileVersions | ForEach-Object { Split-Path $_.SourceFolder -Leaf }) -join ", "
+    
+    # Build differences summary
+    $differences = if ($allMatch) {
+        "All Match"
+    } else {
+        $fileVersions | ForEach-Object {
+            $folderName = Split-Path $_.SourceFolder -Leaf
+            "$folderName ($($_.LastWriteTime))"
+        } | ForEach-Object { $_ -join "; " }
+        $differences -join "; "
+    }
     
     $report += [PSCustomObject]@{
         FileName = $fileName
-        SourceFolder = $latest.SourceFolder
-        LastModified = $latest.LastWriteTime
+        Action = $action
+        FoundIn = $allSourceFolders
         VersionCount = $fileVersions.Count
-        CopiedTo = $destinationPath
+        AllMatch = $allMatch
+        Differences = $differences
+        SelectedFrom = Split-Path $latest.SourceFolder -Leaf
+        SelectedDate = $latest.LastWriteTime
+        MissingInGolden = $missingInGolden
     }
 }
 
@@ -66,4 +107,5 @@ $report | Format-Table -AutoSize
 $reportPath = Join-Path $goldenSourcePath "consolidation_report.csv"
 $report | Export-Csv -Path $reportPath -NoTypeInformation
 
-Write-Output "`nINFO: Report saved to: $reportPath"
+Write-Host "`nReport saved to: $reportPath"
+Write-Host "Total files processed: $($report.Count)"
