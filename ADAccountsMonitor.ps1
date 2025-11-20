@@ -4,7 +4,7 @@ param(
 )
 
 Import-Module ActiveDirectory -ErrorAction Stop
-Import-Module .\ConfigModule.psm1 -ErrorAction Stop
+Import-Module .\ADAccountsMonitor.psm1 -ErrorAction Stop
 
 function Get-EnvFromCfg {
     param(
