@@ -1,9 +1,10 @@
 param(
-    [string]$CfgPath = '.\monitor_accounts.cfg'
+    [string]$CfgPath   = '.\monitor_accounts.cfg',
+    [string]$CsvFolder = '.'
 )
 
 Import-Module ActiveDirectory -ErrorAction Stop
-Import-Module .\ADAccountsMonitor.psm1 -ErrorAction Stop
+Import-Module .\ConfigModule.psm1 -ErrorAction Stop
 
 function Get-EnvFromCfg {
     param(
@@ -62,7 +63,7 @@ function Test-AccountHealth {
         }
     }
 
-    $now = Get-Date
+    $now    = Get-Date
     $status = 'OK'
     $reason = ''
 
@@ -78,11 +79,6 @@ function Test-AccountHealth {
     } elseif ($user.PasswordExpired) {
         $status = 'NotUsable'
         $reason = 'PasswordExpired'
-    } elseif ($user.UserAccountControl -band 0x10) {
-        # 0x10 = LOCKOUT or 0x20 = PASSWD_NOTREQD etc. Adjust flags as needed
-        # Example of another “I would not use this” flag
-        $status = 'NotUsable'
-        $reason = 'UACFlagSet'
     }
 
     return [pscustomobject]@{
@@ -92,6 +88,132 @@ function Test-AccountHealth {
         SamAccountName   = $sam
         Status           = $status
         Reason           = $reason
+    }
+}
+
+function Send-AccountHealthEmail {
+    param(
+        [System.Collections.IEnumerable]$Results,
+        [string]$CsvPath,
+        [string]$SmtpServer,
+        [int]$SmtpPort = 25,
+        [string]$From,
+        [string]$To,
+        [string]$Subject = 'Account health issues detected',
+        [switch]$UseSsl
+    )
+
+    if (-not $Results) {
+        Write-Output 'WARN: No results passed to Send-AccountHealthEmail'
+        return
+    }
+
+    # Any status not equal to OK is considered an issue
+    $issues = $Results | Where-Object { $_.Status -ne 'OK' }
+
+    if (-not $issues -or $issues.Count -eq 0) {
+        Write-Output 'INFO: All accounts OK, no email generated'
+        return
+    }
+
+    if (-not $SmtpServer -or -not $From -or -not $To) {
+        Write-Output 'ERROR: SmtpServer, From, and To must be specified for email sending'
+        return
+    }
+
+    # Build simple HTML body
+    $envList = ($issues | Select-Object -ExpandProperty Environment -Unique) -join ', '
+    $timeStr = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+
+    $html = @"
+<html>
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+  <style type="text/css">
+    body { font-family: Arial, sans-serif; font-size: 11px; }
+    table { border-collapse: collapse; }
+    th, td { border: 1px solid #999999; padding: 4px 6px; }
+    th { background-color: #eeeeee; }
+  </style>
+</head>
+<body>
+  <p>Account health issues were detected.</p>
+  <p><b>Environments:</b> $envList<br />
+     <b>Generated:</b> $timeStr</p>
+  <table>
+    <tr>
+      <th>Environment</th>
+      <th>Domain</th>
+      <th>NetbiosDomain</th>
+      <th>SamAccountName</th>
+      <th>Status</th>
+      <th>Reason</th>
+    </tr>
+"@
+
+    foreach ($i in $issues) {
+        $env   = [System.Web.HttpUtility]::HtmlEncode($i.Environment)
+        $dom   = [System.Web.HttpUtility]::HtmlEncode($i.Domain)
+        $nb    = [System.Web.HttpUtility]::HtmlEncode($i.NetbiosDomain)
+        $sam   = [System.Web.HttpUtility]::HtmlEncode($i.SamAccountName)
+        $stat  = [System.Web.HttpUtility]::HtmlEncode($i.Status)
+        $reas  = [System.Web.HttpUtility]::HtmlEncode($i.Reason)
+
+        $html += @"
+    <tr>
+      <td>$env</td>
+      <td>$dom</td>
+      <td>$nb</td>
+      <td>$sam</td>
+      <td>$stat</td>
+      <td>$reas</td>
+    </tr>
+"@
+    }
+
+    $html += @"
+  </table>
+"@
+
+    if ($CsvPath -and (Test-Path -LiteralPath $CsvPath)) {
+        $html += "<p>Full account health details are attached as CSV.</p>"
+    }
+
+    $html += @"
+</body>
+</html>
+"@
+
+    try {
+        $mail = New-Object System.Net.Mail.MailMessage
+        $mail.From = $From
+        $mail.To.Add($To)
+        $mail.Subject = $Subject
+        $mail.IsBodyHtml = $true
+        $mail.Body = $html
+
+        if ($CsvPath -and (Test-Path -LiteralPath $CsvPath)) {
+            $attachment = New-Object System.Net.Mail.Attachment($CsvPath)
+            $mail.Attachments.Add($attachment) | Out-Null
+        }
+
+        $smtp = New-Object System.Net.Mail.SmtpClient($SmtpServer, $SmtpPort)
+        if ($UseSsl) {
+            $smtp.EnableSsl = $true
+        }
+
+        Write-Output 'INFO: Sending account health email with issues'
+        $smtp.Send($mail)
+        Write-Output 'INFO: Account health email sent'
+    } catch {
+        Write-Output "ERROR: Failed to send email: $($_.Exception.Message)"
+    } finally {
+        if ($mail) {
+            $mail.Dispose()
+        }
+        if ($smtp) {
+            $smtp.Dispose()
+        }
     }
 }
 
@@ -124,11 +246,34 @@ foreach ($domain in $accountsByDomain.Keys) {
         $result = Test-AccountHealth -DomainDns $domain -AccountString $acct
         $results += $result
 
-        # For Autosys you can either just rely on CSV or print one line per account
         Write-Output ("INFO: {0} {1}\{2} Status={3} Reason={4}" -f `
             $result.Environment, $result.NetbiosDomain, $result.SamAccountName, $result.Status, $result.Reason)
     }
 }
 
-# Optionally output a CSV for downstream tools
-# $results | Export-Csv -NoTypeInformation -Path '.\AccountHealth.csv'
+if (-not $results -or $results.Count -eq 0) {
+    Write-Output 'WARN: No results generated'
+    exit 0
+}
+
+# Export CSV
+if (-not (Test-Path -LiteralPath $CsvFolder)) {
+    New-Item -Path $CsvFolder -ItemType Directory -Force | Out-Null
+}
+
+$timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+$csvPath   = Join-Path -Path $CsvFolder -ChildPath ("AccountHealth_{0}_{1}.csv" -f $script:CurrentEnvironment, $timestamp)
+
+$results | Export-Csv -NoTypeInformation -Path $csvPath
+Write-Output "INFO: Account health CSV written to '$csvPath'"
+
+# Call email function
+# Plug in your real SMTP values here
+Send-AccountHealthEmail -Results $results `
+    -CsvPath $csvPath `
+    -SmtpServer 'your.smtp.server' `
+    -SmtpPort 25 `
+    -From 'account-monitor@yourdomain' `
+    -To 'pamsupport@yourdomain' `
+    -Subject "Account health issues detected in $($script:CurrentEnvironment)" `
+    -UseSsl
