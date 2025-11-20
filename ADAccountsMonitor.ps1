@@ -1,29 +1,9 @@
 param(
-    [string]$CfgPath   = '.\monitor_accounts.cfg',
     [string]$CsvFolder = '.'
 )
 
-function Get-EnvFromCfg {
-    param(
-        [string]$Path
-    )
-
-    if (-not (Test-Path -LiteralPath $Path)) {
-        Write-Output "WARN: cfg file '$Path' not found, defaulting to DEV"
-        return 'DEV'
-    }
-
-    $lines = Get-Content -LiteralPath $Path | Where-Object {$_ -and $_ -notmatch '^\s*#'}
-    foreach ($line in $lines) {
-        $parts = $line -split '=', 2
-        if ($parts.Count -eq 2 -and $parts[0].Trim() -ieq 'Environment') {
-            return $parts[1].Trim()
-        }
-    }
-
-    Write-Output "WARN: Environment not found in cfg, defaulting to DEV"
-    return 'DEV'
-}
+Import-Module ActiveDirectory -ErrorAction Stop
+Import-Module .\ADAccountsMonitor.psm1 -ErrorAction Stop
 
 function Encode-Html {
     param(
@@ -51,7 +31,7 @@ function Test-AccountHealth {
     $sam     = $SamAccountName
 
     try {
-        # We assume DomainName can be used as -Server (NetBIOS or DNS name)
+        # Assumes DomainName is resolvable as an AD server (NetBIOS or DNS)
         $user = Get-ADUser -Identity $sam -Server $DomainName -ErrorAction Stop -Properties Enabled,LockedOut,AccountExpirationDate,PasswordExpired,PasswordLastSet,UserAccountControl
     } catch {
         return [pscustomobject]@{
@@ -213,18 +193,20 @@ function Send-AccountHealthEmail {
     }
 }
 
+# Validate that ConfigModule has given us Environment and AccountList
 
-Import-Module ActiveDirectory -ErrorAction Stop
-Import-Module .\ADAccountsMonitor.psm1 -ErrorAction Stop
-
-$script:CurrentEnvironment = Get-EnvFromCfg -Path $CfgPath
-
-if (-not $ConfAccountSets.ContainsKey($script:CurrentEnvironment)) {
-    Write-Output "ERROR: Environment '$script:CurrentEnvironment' not defined in ConfigModule"
+if (-not (Get-Variable -Name Environment -ErrorAction SilentlyContinue)) {
+    Write-Output 'ERROR: Environment variable not defined by ConfigModule'
     exit 1
 }
 
-$accountsByDomain = $ConfAccountSets[$script:CurrentEnvironment]
+if (-not (Get-Variable -Name AccountList -ErrorAction SilentlyContinue)) {
+    Write-Output 'ERROR: AccountList variable not defined by ConfigModule'
+    exit 1
+}
+
+$script:CurrentEnvironment = [string]$Environment
+$accountsByDomain = $AccountList
 
 if (-not $accountsByDomain -or $accountsByDomain.Count -eq 0) {
     Write-Output "WARN: No domains or accounts defined for env '$script:CurrentEnvironment'"
@@ -268,7 +250,7 @@ $csvPath   = Join-Path -Path $CsvFolder -ChildPath ("AccountHealth_{0}_{1}.csv" 
 $results | Export-Csv -NoTypeInformation -Path $csvPath
 Write-Output "INFO: Account health CSV written to '$csvPath'"
 
-# Call email function (fill these in for real)
+# Call email function (fill these in with real values)
 Send-AccountHealthEmail -Results $results `
     -CsvPath $csvPath `
     -SmtpServer 'your.smtp.server' `
