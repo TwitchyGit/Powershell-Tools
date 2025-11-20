@@ -3,9 +3,6 @@ param(
     [string]$CsvFolder = '.'
 )
 
-Import-Module ActiveDirectory -ErrorAction Stop
-Import-Module .\ADAccountsMonitor.psm1 -ErrorAction Stop
-
 function Get-EnvFromCfg {
     param(
         [string]$Path
@@ -28,38 +25,42 @@ function Get-EnvFromCfg {
     return 'DEV'
 }
 
-function Test-AccountHealth {
+function Encode-Html {
     param(
-        [string]$DomainDns,
-        [string]$AccountString
+        [string]$Text
     )
-
-    # AccountString is DOMAIN\SamAccountName
-    $split = $AccountString -split '\\', 2
-    if ($split.Count -ne 2) {
-        return [pscustomobject]@{
-            Environment      = $script:CurrentEnvironment
-            Domain           = $DomainDns
-            NetbiosDomain    = $null
-            SamAccountName   = $AccountString
-            Status           = 'Error'
-            Reason           = 'Account string not in DOMAIN\Sam format'
-        }
+    if ($null -eq $Text) {
+        return ''
     }
 
-    $netbios = $split[0]
-    $sam     = $split[1]
+    $t = $Text.Replace('&','&amp;')
+    $t = $t.Replace('<','&lt;')
+    $t = $t.Replace('>','&gt;')
+    $t = $t.Replace('"','&quot;')
+    $t = $t.Replace("'",'&#39;')
+    return $t
+}
+
+function Test-AccountHealth {
+    param(
+        [string]$DomainName,      # DOMAIN1 / DOMAIN2 (also used as -Server)
+        [string]$SamAccountName   # account1 / svc_app1 etc
+    )
+
+    $netbios = $DomainName
+    $sam     = $SamAccountName
 
     try {
-        $user = Get-ADUser -Identity $sam -Server $DomainDns -ErrorAction Stop -Properties Enabled,LockedOut,AccountExpirationDate,PasswordExpired,PasswordLastSet,UserAccountControl
+        # We assume DomainName can be used as -Server (NetBIOS or DNS name)
+        $user = Get-ADUser -Identity $sam -Server $DomainName -ErrorAction Stop -Properties Enabled,LockedOut,AccountExpirationDate,PasswordExpired,PasswordLastSet,UserAccountControl
     } catch {
         return [pscustomobject]@{
-            Environment      = $script:CurrentEnvironment
-            Domain           = $DomainDns
-            NetbiosDomain    = $netbios
-            SamAccountName   = $sam
-            Status           = 'Error'
-            Reason           = "Get-ADUser failed: $($_.Exception.Message)"
+            Environment    = $script:CurrentEnvironment
+            Domain         = $DomainName
+            NetbiosDomain  = $netbios
+            SamAccountName = $sam
+            Status         = 'Error'
+            Reason         = "Get-ADUser failed: $($_.Exception.Message)"
         }
     }
 
@@ -82,12 +83,12 @@ function Test-AccountHealth {
     }
 
     return [pscustomobject]@{
-        Environment      = $script:CurrentEnvironment
-        Domain           = $DomainDns
-        NetbiosDomain    = $netbios
-        SamAccountName   = $sam
-        Status           = $status
-        Reason           = $reason
+        Environment    = $script:CurrentEnvironment
+        Domain         = $DomainName
+        NetbiosDomain  = $netbios
+        SamAccountName = $sam
+        Status         = $status
+        Reason         = $reason
     }
 }
 
@@ -117,11 +118,10 @@ function Send-AccountHealthEmail {
     }
 
     if (-not $SmtpServer -or -not $From -or -not $To) {
-        Write-Output 'ERROR: SmtpServer, From, and To must be specified for email sending'
+        Write-Output 'ERROR: SmtpServer, From and To must be specified for email sending'
         return
     }
 
-    # Build simple HTML body
     $envList = ($issues | Select-Object -ExpandProperty Environment -Unique) -join ', '
     $timeStr = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
 
@@ -138,8 +138,8 @@ function Send-AccountHealthEmail {
 </head>
 <body>
   <p>Account health issues were detected.</p>
-  <p><b>Environments:</b> $envList<br />
-     <b>Generated:</b> $timeStr</p>
+  <p><b>Environments:</b> $(Encode-Html $envList)<br />
+     <b>Generated:</b> $(Encode-Html $timeStr)</p>
   <table>
     <tr>
       <th>Environment</th>
@@ -152,12 +152,12 @@ function Send-AccountHealthEmail {
 "@
 
     foreach ($i in $issues) {
-        $env   = [System.Web.HttpUtility]::HtmlEncode($i.Environment)
-        $dom   = [System.Web.HttpUtility]::HtmlEncode($i.Domain)
-        $nb    = [System.Web.HttpUtility]::HtmlEncode($i.NetbiosDomain)
-        $sam   = [System.Web.HttpUtility]::HtmlEncode($i.SamAccountName)
-        $stat  = [System.Web.HttpUtility]::HtmlEncode($i.Status)
-        $reas  = [System.Web.HttpUtility]::HtmlEncode($i.Reason)
+        $env  = Encode-Html $i.Environment
+        $dom  = Encode-Html $i.Domain
+        $nb   = Encode-Html $i.NetbiosDomain
+        $sam  = Encode-Html $i.SamAccountName
+        $stat = Encode-Html $i.Status
+        $reas = Encode-Html $i.Reason
 
         $html += @"
     <tr>
@@ -208,14 +208,14 @@ function Send-AccountHealthEmail {
     } catch {
         Write-Output "ERROR: Failed to send email: $($_.Exception.Message)"
     } finally {
-        if ($mail) {
-            $mail.Dispose()
-        }
-        if ($smtp) {
-            $smtp.Dispose()
-        }
+        if ($mail) { $mail.Dispose() }
+        if ($smtp) { $smtp.Dispose() }
     }
 }
+
+
+Import-Module ActiveDirectory -ErrorAction Stop
+Import-Module .\ADAccountsMonitor.psm1 -ErrorAction Stop
 
 $script:CurrentEnvironment = Get-EnvFromCfg -Path $CfgPath
 
@@ -235,17 +235,18 @@ Write-Output "INFO: Starting account health check for environment '$script:Curre
 
 $results = @()
 
-foreach ($domain in $accountsByDomain.Keys) {
-    $accountList = $accountsByDomain[$domain]
+foreach ($domainName in $accountsByDomain.Keys) {
+    $accountList = $accountsByDomain[$domainName]
     if (-not $accountList -or $accountList.Count -eq 0) {
-        Write-Output "WARN: No accounts listed for domain '$domain' in env '$script:CurrentEnvironment'"
+        Write-Output "WARN: No accounts listed for domain '$domainName' in env '$script:CurrentEnvironment'"
         continue
     }
 
-    foreach ($acct in $accountList) {
-        $result = Test-AccountHealth -DomainDns $domain -AccountString $acct
+    foreach ($sam in $accountList) {
+        $result = Test-AccountHealth -DomainName $domainName -SamAccountName $sam
         $results += $result
 
+        # Log one line per account for Autosys logs
         Write-Output ("INFO: {0} {1}\{2} Status={3} Reason={4}" -f `
             $result.Environment, $result.NetbiosDomain, $result.SamAccountName, $result.Status, $result.Reason)
     }
@@ -256,7 +257,7 @@ if (-not $results -or $results.Count -eq 0) {
     exit 0
 }
 
-# Export CSV
+# Ensure CSV folder exists
 if (-not (Test-Path -LiteralPath $CsvFolder)) {
     New-Item -Path $CsvFolder -ItemType Directory -Force | Out-Null
 }
@@ -267,8 +268,7 @@ $csvPath   = Join-Path -Path $CsvFolder -ChildPath ("AccountHealth_{0}_{1}.csv" 
 $results | Export-Csv -NoTypeInformation -Path $csvPath
 Write-Output "INFO: Account health CSV written to '$csvPath'"
 
-# Call email function
-# Plug in your real SMTP values here
+# Call email function (fill these in for real)
 Send-AccountHealthEmail -Results $results `
     -CsvPath $csvPath `
     -SmtpServer 'your.smtp.server' `
