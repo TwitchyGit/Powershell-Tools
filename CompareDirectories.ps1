@@ -134,9 +134,9 @@ foreach ($relativePath in $allFilePaths.Keys) {
 # Display report
 $report | Format-Table -AutoSize
 
-# Export report to CSV
-$reportPath = Join-Path $goldenSourcePath "consolidation_report.csv"
+# Export report to CSV in the current directory
+$reportPath = Join-Path (Get-Location) "consolidation_report.csv"
 $report | Export-Csv -Path $reportPath -NoTypeInformation
 
-Write-Host "`nReport saved to: $reportPath"
-Write-Host "Total unique files: $($report.Count)"
+Write-Output "`nReport saved to: $reportPath"
+Write-Output "Total unique files: $($report.Count)"
