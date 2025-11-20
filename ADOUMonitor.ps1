@@ -3,6 +3,7 @@
   Monitor OU structural changes across multiple AD domains.
 
 .DESCRIPTION
+  This requires: Install-WindowsFeature GPMC
   For each domain:
     - Queries all OUs and builds a snapshot:
         ObjectGUID
