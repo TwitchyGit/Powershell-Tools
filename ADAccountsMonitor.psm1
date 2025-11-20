@@ -1,31 +1,18 @@
 # ADAccountsMonitor.psm1
+# $Environment is set before import, or inside this module
+# For example:
+# $Environment = 'DEV'
 
-# Top level: environment
-# Second level: AD DNS domain
-# Value: array of account strings DOMAIN\SamAccountName
-
-$ConfAccountSets = @{
-    DEV = @{
-        'dev.domain1.local' = @(
-            'DEV1\svc_app1'
-            'DEV1\svc_app2'
-            'DEV1\svc_batch1'
-        )
-        'dev.domain2.local' = @(
-            'DEV2\svc_web1'
-            'DEV2\svc_db1'
-        )
+if ($Environment -match 'DEV') {
+    $AccountList = @{
+        'DOMAIN1' = @('account1','account2')
+        'DOMAIN2' = @('account1','account2')
     }
-    PROD = @{
-        'prod.domain1.local' = @(
-            'PROD1\svc_app1'
-            'PROD1\svc_app2'
-        )
-        'prod.domain2.local' = @(
-            'PROD2\svc_batch1'
-            'PROD2\svc_db1'
-        )
+} elseif ($Environment -match 'PROD') {
+    $AccountList = @{
+        'DOMAIN1' = @('account1','account2')
+        'DOMAIN2' = @('account1','account2')
     }
 }
 
-Export-ModuleMember -Variable ConfAccountSets
+Export-ModuleMember -Variable Environment,AccountList
