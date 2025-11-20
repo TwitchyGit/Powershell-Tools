@@ -1,15 +1,16 @@
 <#
 .SYNOPSIS
-Compares a golden source folder with one or more compare folders
+Report-only comparison between a golden source folder and one or more compare folders
 
 .DESCRIPTION
-1. For every file in $GoldenSource, finds the newest copy across all folders
-   and reports if a newer copy exists in any compare folder
+1. For each file in $GoldenSource:
+   - Look in each folder in $CompareFolders for a file with the same name
+   - If any compare folder has a newer copy (LastWriteTime later than GoldenSource)
+     report "Newer in <folder>"
+   - If no compare folder has a newer copy report "No change"
 
-2. Builds a list of files that exist only in compare folders
-   For those, shows only the newest copy and which compare folder it is in
-
-No files are changed
+2. Then build a list of files that exist only in compare folders
+   - For each such file name show only the newest copy and which folder it is in
 
 .\CompareDirectories.ps1 -GoldenSource 'C:\GoldenSource' `
     -CompareFolders 'C:\FolderA','C:\FolderB','D:\AnotherFolder'
@@ -23,26 +24,53 @@ param(
     [string[]]$CompareFolders
 )
 
-# Validate golden source
+# =======================
+# VALIDATION
+# =======================
+
 if (-not (Test-Path -Path $GoldenSource -PathType Container)) {
     Write-Error "GoldenSource folder not found: $GoldenSource"
     exit 1
 }
 
-# Validate compare folders and collect files
-$allCompareFiles = @()
+if (-not $CompareFolders -or $CompareFolders.Count -eq 0) {
+    Write-Error "No compare folders defined in `\$CompareFolders"
+    exit 1
+}
+
+$validCompareFolders = @()
 
 foreach ($folder in $CompareFolders) {
-    if (-not (Test-Path -Path $folder -PathType Container)) {
-        Write-Warning "Compare folder not found and will be skipped: $folder"
-        continue
+    if (Test-Path -Path $folder -PathType Container) {
+        $validCompareFolders += $folder
     }
+    else {
+        Write-Warning "Compare folder not found and will be skipped: $folder"
+    }
+}
 
+if ($validCompareFolders.Count -eq 0) {
+    Write-Error "None of the compare folders exist. Nothing to do"
+    exit 1
+}
+
+# =======================
+# COLLECT FILE LISTS
+# =======================
+
+# Golden source files (non recursive, change if you want recursion)
+$goldenFiles = Get-ChildItem -Path $GoldenSource -File -ErrorAction Stop
+
+# All files in compare folders
+$allCompareFiles = @()
+
+foreach ($folder in $validCompareFolders) {
     $folderFiles = Get-ChildItem -Path $folder -File -ErrorAction Stop | ForEach-Object {
         [PSCustomObject]@{
-            Name         = $_.Name
-            FullName     = $_.FullName
-            Folder       = $folder
+            Name          = $_.Name
+            FullName      = $_.FullName
+            Folder        = $folder
+            Length        = $_.Length
             LastWriteTime = $_.LastWriteTime
         }
     }
@@ -50,59 +78,55 @@ foreach ($folder in $CompareFolders) {
     $allCompareFiles += $folderFiles
 }
 
-# Get golden source files
-$goldenFiles = Get-ChildItem -Path $GoldenSource -File -ErrorAction Stop
+# =======================
+# PART 1
+# Compare each golden file
+# =======================
 
-# Report 1
-# For each golden file work out the newest copy across golden and compare folders
-$goldenReport = foreach ($g in $goldenFiles) {
+$comparisonReport = foreach ($g in $goldenFiles) {
     $matches = $allCompareFiles | Where-Object { $_.Name -eq $g.Name }
 
-    # Build candidate list including the golden copy
-    $candidates = @(
-        [PSCustomObject]@{
-            Source       = 'GoldenSource'
-            Folder       = $GoldenSource
-            Name         = $g.Name
-            FullName     = $g.FullName
-            LastWriteTime = $g.LastWriteTime
-        }
-    )
+    $goldenTime   = $g.LastWriteTime
+    $goldenLength = $g.Length
 
-    if ($matches) {
-        $candidates += $matches | Select-Object @{
-            Name       = 'Source'
-            Expression = { 'Compare' }
-        }, Folder, Name, FullName, LastWriteTime
-    }
+    # Any compare file strictly newer than golden
+    $newerMatches = $matches | Where-Object { $_.LastWriteTime -gt $goldenTime }
 
-    $newest = $candidates | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-
-    $status = if ($newest.Source -eq 'GoldenSource') {
-        'Latest in GoldenSource'
+    if ($newerMatches) {
+        # Pick the newest of the newer ones
+        $newest = $newerMatches | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        $status = "Newer in $($newest.Folder)"
+        $newestFolder = $newest.Folder
+        $newestTime   = $newest.LastWriteTime
     }
     else {
-        "Newer in $($newest.Folder)"
+        # No compare copy is newer than golden
+        $status = 'No change'
+        $newestFolder = $GoldenSource
+        $newestTime   = $goldenTime
     }
 
     [PSCustomObject]@{
         FileName         = $g.Name
         GoldenSourcePath = $g.FullName
-        GoldenSourceTime = $g.LastWriteTime
-        NewestLocation   = $newest.Folder
-        NewestTime       = $newest.LastWriteTime
+        GoldenSourceTime = $goldenTime
+        NewestLocation   = $newestFolder
+        NewestTime       = $newestTime
         Status           = $status
     }
 }
 
-Write-Output "=== Files where a compare folder has a newer copy than GoldenSource ==="
-$goldenReport |
-    Where-Object { $_.Status -like 'Newer in *' } |
+Write-Output ''
+Write-Output '=== Golden source comparison (Newer in <folder> or No change) ==='
+$comparisonReport |
     Sort-Object FileName |
     Format-Table FileName, Status, NewestLocation, NewestTime, GoldenSourceTime -AutoSize
 
-# Report 2
-# Files that exist only in compare folders (not in GoldenSource)
+# =======================
+# PART 2
+# Files only in compare folders
+# =======================
+
 $goldenNames = $goldenFiles.Name
 
 $compareOnly = $allCompareFiles |
@@ -121,7 +145,8 @@ $extraFilesReport = $compareOnly |
         }
     }
 
-Write-Output "=== Files not found in GoldenSource (showing newest copy only) ==="
+Write-Output ''
+Write-Output '=== Files not found in GoldenSource (newest copy only) ==='
 $extraFilesReport |
     Sort-Object FileName |
     Format-Table FileName, Folder, NewestTime, FullName -AutoSize
