@@ -1,15 +1,15 @@
 <#
 .SYNOPSIS
     Gets all Group Policy Objects (GPOs) that apply to specified computer objects in Active Directory.
-
 .DESCRIPTION
     This script queries Active Directory to find computer objects and determines which GPOs
     apply to them based on their OU location. It walks up the OU hierarchy to discover all
     linked GPOs, including their enabled status, enforcement, and link order.
     
+    Displays both a summary table and detailed GPO listings.
+    
     Note: This shows GPOs that SHOULD apply based on AD structure. It does not query the
     actual resultant set of policy (RSoP) from live machines.
-
 .NOTES
     Requires: Active Directory and Group Policy PowerShell modules
 #>
@@ -87,8 +87,43 @@ $results = foreach ($server in $servers) {
     }
 }
 
-# Display results in a formatted table
-$results | Format-Table -AutoSize
+# Generate summary table grouped by server
+Write-Host "`n==================== GPO SUMMARY ====================" -ForegroundColor Green
+$summary = $results | Group-Object Server | Select-Object @{
+    Name = 'Server'
+    Expression = { $_.Name }
+}, @{
+    Name = 'Total GPOs'
+    Expression = { $_.Count }
+}, @{
+    Name = 'Enforced GPOs'
+    Expression = { ($_.Group | Where-Object { $_.Enforced -eq $true }).Count }
+}, @{
+    Name = 'OU Path'
+    Expression = { 
+        # Get the most specific OU path (first target)
+        $firstTarget = ($_.Group | Select-Object -First 1).Target
+        # Convert DN to canonical name format for readability
+        if ($firstTarget -match 'OU=') {
+            ($firstTarget -replace '^OU=' -replace ',OU=', ' > ' -replace ',DC=.*$', '')
+        } else {
+            'Domain Root'
+        }
+    }
+}
 
-# Optional: Export results to CSV file for further analysis
-# $results | Export-Csv -Path "C:\Temp\ServerGPOs.csv" -NoTypeInformation
+$summary | Format-Table -AutoSize
+
+# Display detailed results
+Write-Host "`n================= DETAILED GPO LIST =================" -ForegroundColor Green
+$results | Sort-Object Server, Order | Format-Table -AutoSize
+
+# Optional: Export results to CSV files for further analysis
+# $summary | Export-Csv -Path "C:\Temp\ServerGPO_Summary.csv" -NoTypeInformation
+# $results | Export-Csv -Path "C:\Temp\ServerGPO_Details.csv" -NoTypeInformation
+
+# Display totals
+Write-Host "`n====================== TOTALS =======================" -ForegroundColor Green
+Write-Host "Total Servers Processed: $($summary.Count)" -ForegroundColor Yellow
+Write-Host "Total GPO Assignments: $($results.Count)" -ForegroundColor Yellow
+Write-Host "====================================================`n" -ForegroundColor Green
