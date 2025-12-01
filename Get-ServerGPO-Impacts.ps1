@@ -97,7 +97,7 @@ $results = foreach ($appHost in $servers.Keys) {
 }
 
 # ============================================================================
-# GENERATE SUMMARY BY APPHOST
+# SECTION 1: GENERATE SUMMARY BY APPHOST
 # ============================================================================
 # This section creates detailed summaries for each AppHost showing:
 # - Individual server GPO counts
@@ -152,7 +152,7 @@ foreach ($appHost in ($servers.Keys | Sort-Object)) {
 }
 
 # ============================================================================
-# OVERALL SUMMARY BY APPHOST
+# SECTION 2: OVERALL SUMMARY BY APPHOST
 # ============================================================================
 # This section creates a high-level comparison table across all AppHosts
 # Shows: server count, total GPOs, average GPOs per server, and enforced counts
@@ -179,7 +179,7 @@ $overallSummary = $results | Group-Object AppHost | Select-Object @{
 $overallSummary | Format-Table -AutoSize
 
 # ============================================================================
-# DETAILED GPO LIST
+# SECTION 3: DETAILED GPO LIST
 # ============================================================================
 # This section shows every GPO assignment with full details
 # Sorted by AppHost, then Server, then GPO order for easy review
@@ -188,7 +188,7 @@ Write-Output "`n============== DETAILED GPO LIST BY APPHOST ============="
 $results | Sort-Object AppHost, FullName, Order | Format-Table AppHost, FullName, GPOName, Enforced, Order, Target -AutoSize
 
 # ============================================================================
-# GRAND TOTALS
+# SECTION 4: GRAND TOTALS
 # ============================================================================
 # Final summary showing overall statistics across all AppHosts and domains
 
