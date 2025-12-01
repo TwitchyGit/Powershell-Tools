@@ -131,7 +131,7 @@ foreach ($appHost in ($servers.Keys | Sort-Object)) {
                 $firstTarget = ($_.Group | Select-Object -First 1).Target
                 # Convert DN format to readable format (OU hierarchy)
                 if ($firstTarget -match 'OU=') {
-                    ($firstTarget -replace '^OU=' -replace ',OU=', ' > ' -replace ',DC=.*
+                    ($firstTarget -replace '^OU=' -replace ',OU=', ' > ' -replace ',DC=.*$', '')
 
 # Optional: Export results to CSV files
 # $results | Export-Csv -Path "C:\Temp\ServerGPO_Details.csv" -NoTypeInformation
