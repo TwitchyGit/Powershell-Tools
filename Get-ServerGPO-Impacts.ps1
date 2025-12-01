@@ -96,15 +96,25 @@ $results = foreach ($appHost in $servers.Keys) {
     }
 }
 
-# Generate summary by AppHost
+# ============================================================================
+# GENERATE SUMMARY BY APPHOST
+# ============================================================================
+# This section creates detailed summaries for each AppHost showing:
+# - Individual server GPO counts
+# - OU locations
+# - Enforced GPO counts
+# - Totals per AppHost
+
 Write-Output "`n================ GPO SUMMARY BY APPHOST ================"
 
 foreach ($appHost in ($servers.Keys | Sort-Object)) {
+    # Filter results to only this AppHost
     $appHostResults = $results | Where-Object { $_.AppHost -eq $appHost }
     
     if ($appHostResults) {
         Write-Output "`n$appHost Servers:"
         
+        # Group by server and calculate statistics for each
         $appHostSummary = $appHostResults | Group-Object FullName | Select-Object @{
             Name = 'Server'
             Expression = { $_.Name }
@@ -117,9 +127,15 @@ foreach ($appHost in ($servers.Keys | Sort-Object)) {
         }, @{
             Name = 'OU Location'
             Expression = { 
+                # Get the most specific OU path for this server
                 $firstTarget = ($_.Group | Select-Object -First 1).Target
+                # Convert DN format to readable format (OU hierarchy)
                 if ($firstTarget -match 'OU=') {
-                    ($firstTarget -replace '^OU=' -replace ',OU=', ' > ' -replace ',DC=.*$', '')
+                    ($firstTarget -replace '^OU=' -replace ',OU=', ' > ' -replace ',DC=.*
+
+# Optional: Export results to CSV files
+# $results | Export-Csv -Path "C:\Temp\ServerGPO_Details.csv" -NoTypeInformation
+# $overallSummary | Export-Csv -Path "C:\Temp\AppHost_Summary.csv" -NoTypeInformation, '')
                 } else {
                     'Domain Root'
                 }
@@ -128,15 +144,21 @@ foreach ($appHost in ($servers.Keys | Sort-Object)) {
         
         $appHostSummary | Format-Table -AutoSize
         
-        # AppHost totals
+        # Calculate and display AppHost-level totals
         $totalGPOs = ($appHostResults | Measure-Object).Count
         $totalEnforced = ($appHostResults | Where-Object { $_.Enforced -eq $true } | Measure-Object).Count
         Write-Output "  $appHost Totals: $totalGPOs GPOs ($totalEnforced Enforced)"
     }
 }
 
-# Overall summary table
+# ============================================================================
+# OVERALL SUMMARY BY APPHOST
+# ============================================================================
+# This section creates a high-level comparison table across all AppHosts
+# Shows: server count, total GPOs, average GPOs per server, and enforced counts
+
 Write-Output "`n============== OVERALL SUMMARY BY APPHOST =============="
+
 $overallSummary = $results | Group-Object AppHost | Select-Object @{
     Name = 'AppHost'
     Expression = { $_.Name }
@@ -156,11 +178,20 @@ $overallSummary = $results | Group-Object AppHost | Select-Object @{
 
 $overallSummary | Format-Table -AutoSize
 
-# Display detailed results
+# ============================================================================
+# DETAILED GPO LIST
+# ============================================================================
+# This section shows every GPO assignment with full details
+# Sorted by AppHost, then Server, then GPO order for easy review
+
 Write-Output "`n============== DETAILED GPO LIST BY APPHOST ============="
 $results | Sort-Object AppHost, FullName, Order | Format-Table AppHost, FullName, GPOName, Enforced, Order, Target -AutoSize
 
-# Display grand totals
+# ============================================================================
+# GRAND TOTALS
+# ============================================================================
+# Final summary showing overall statistics across all AppHosts and domains
+
 Write-Output "`n===================== GRAND TOTALS ====================="
 Write-Output "Total AppHosts: $($servers.Keys.Count)"
 Write-Output "Total Servers: $(($results | Select-Object -Unique FullName).Count)"
