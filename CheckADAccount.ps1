@@ -17,8 +17,8 @@ Add-Type -AssemblyName System.Windows.Forms
 $Environment = "DEV"  # Change to "PROD" for production domains
 
 $DomainArrays = @{
-    "DEV"  = @("DOMAIN1", "DOMAIN2", "DOMAIN3", "DOMAIN4")
-    "PROD" = @("PRODDOMAIN1", "PRODDOMAIN2", "PRODDOMAIN3", "PRODDOMAIN14")
+    "DEV"  = @("QAASIAPAC", "QAEUROPE", "QAAMERICAS", "QAJAPAN")
+    "PROD" = @("ASIAPAC", "EUROPE", "AMERCIAS", "JAPAN")
 }
 
 $ColorScheme = @{
@@ -442,7 +442,7 @@ foreach ($height in $rowHeights) {
     $grid.RowDefinitions.Add($rowDef) | Out-Null
 }
 
-$grid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{ Width = "120" })) | Out-Null
+$grid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{ Width = "80" })) | Out-Null
 $grid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition)) | Out-Null
 
 # Add UI controls
