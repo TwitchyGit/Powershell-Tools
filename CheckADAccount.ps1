@@ -129,39 +129,39 @@ $("=" * 70)
 
 ACCOUNT INFORMATION
 $("-" * 50)
-Display Name:            $($user.DisplayName)
-Distinguished Name:      $($user.DistinguishedName)
-User Principal Name:     $($user.UserPrincipalName)
-Email:                   $($user.EmailAddress)
+Display Name:           $($user.DisplayName)
+Distinguished Name:     $($user.DistinguishedName)
+User Principal Name:    $($user.UserPrincipalName)
+Email:                  $($user.EmailAddress)
 
 PASSWORD STATUS
 $("-" * 50)
-Password Expired:        $($user.PasswordExpired)
-Password Never Expires:  $($user.PasswordNeverExpires)
-Password Not Required:   $($user.PasswordNotRequired)
-Cannot Change Password:  $($user.CannotChangePassword)
-Password Last Set:       $(if ($user.PasswordLastSet) { $user.PasswordLastSet.ToString("yyyy-MM-dd HH:mm:ss") } else { "Must change password at next logon" })
+Password Expired:       $($user.PasswordExpired)
+Password Never Expires: $($user.PasswordNeverExpires)
+Password Not Required:  $($user.PasswordNotRequired)
+Cannot Change Password: $($user.CannotChangePassword)
+Password Last Set:      $(if ($user.PasswordLastSet) { $user.PasswordLastSet.ToString("yyyy-MM-dd HH:mm:ss") } else { "Must change password at next logon" })
 
 ACCOUNT STATUS
 $("-" * 50)
-Enabled:                 $($user.Enabled)
-Locked Out:              $($user.LockedOut)
+Enabled:                $($user.Enabled)
+Locked Out:             $($user.LockedOut)
 Account Expiration Date: $(if ($user.AccountExpirationDate) { $user.AccountExpirationDate.ToString("yyyy-MM-dd HH:mm:ss") } else { "Never" })
-Account Lockout Time:    $(if ($user.AccountExpirationDate) { $($user.AccountLockoutTime) } else { "Not Locked Out" })
-User Account Control:    $(if ($user.UserAccountControl) { GetUserAccountControlFlag $user.UserAccountControl })
+Account Lockout Time:   $($user.AccountLockoutTime)
+User Account Control:   $(if ($user.UserAccountControl) { GetUserAccountControlFlag $user.UserAccountControl })
 
 ORGANIZATIONAL INFORMATION
 $("-" * 50)
-Department:              $($user.Department)
-Title:                   $($user.Title)
-Manager:                 $($user.Manager)
-Office:                  $($user.Office)
-Phone:                   $($user.OfficePhone)
+Department:             $($user.Department)
+Title:                  $($user.Title)
+Manager:                $($user.Manager)
+Office:                 $($user.Office)
+Phone:                  $($user.OfficePhone)
 
 TIMESTAMPS
 $("-" * 50)
-Created:                 $(if ($user.Created) { $user.Created.ToString("yyyy-MM-dd HH:mm:ss") } else { "Unknown" })
-Last Logon:              $(if ($user.LastLogonDate) { $user.LastLogonDate.ToString("yyyy-MM-dd HH:mm:ss") } else { "Unknown" })
+Created:                $(if ($user.Created) { $user.Created.ToString("yyyy-MM-dd HH:mm:ss") } else { "Unknown" })
+Last Logon:             $(if ($user.LastLogonDate) { $user.LastLogonDate.ToString("yyyy-MM-dd HH:mm:ss") } else { "Unknown" })
 
 GROUP MEMBERSHIPS ($($user.MemberOf.Count) groups)
 $("-" * 50)
@@ -442,40 +442,40 @@ foreach ($height in $rowHeights) {
     $grid.RowDefinitions.Add($rowDef) | Out-Null
 }
 
-$grid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{ Width = "120" }))
-$grid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition))
+$grid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{ Width = "120" })) | Out-Null
+$grid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition)) | Out-Null
 
 # Add UI controls
 $titleLabel = New-StyledLabel -Content "Active Directory User Lookup" `
     -Row 0 -ColumnSpan 2 -FontSize 16 -FontWeight "Bold" `
     -HorizontalAlignment "Center" -Margin "0,10,0,5"
-$grid.Children.Add($titleLabel)
+$grid.Children.Add($titleLabel) | Out-Null
 
 $envLabel = New-StyledLabel -Content "Environment: $Environment" `
     -Row 1 -ColumnSpan 2 -FontSize 12 -FontWeight "Bold" `
     -HorizontalAlignment "Center" -Margin "0,0,0,10" `
     -Foreground $(if ($Environment -eq "PROD") { $ColorScheme.AccentRed } else { $ColorScheme.AccentTeal })
-$grid.Children.Add($envLabel)
+$grid.Children.Add($envLabel) | Out-Null
 
 $usernameLabel = New-StyledLabel -Content "Username:" -Row 2 -Column 0
-$grid.Children.Add($usernameLabel)
+$grid.Children.Add($usernameLabel) | Out-Null
 
 $usernameTextBox = New-StyledTextBox -Row 2 -Column 1
 [System.Windows.Controls.Grid]::SetColumnSpan($usernameTextBox, 1)
-$grid.Children.Add($usernameTextBox)
+$grid.Children.Add($usernameTextBox) | Out-Null
 
 $searchButton = New-StyledButton -Content "Search User" -Row 3 `
     -StartColor "#4682B4" -EndColor "#1E5A8C" -BorderColor "#4682B0"
-$grid.Children.Add($searchButton)
+$grid.Children.Add($searchButton) | Out-Null
 
 $statusLabel = New-StyledLabel -Content "Ready to search ... " `
     -Row 4 -ColumnSpan 2 -HorizontalAlignment "Center" `
     -Foreground $ColorScheme.AccentTeal -Margin "0,5,0,5"
-$grid.Children.Add($statusLabel)
+$grid.Children.Add($statusLabel) | Out-Null
 
 $resultsLabel = New-StyledLabel -Content "Results:" -Row 5 `
     -ColumnSpan 2 -FontWeight "Bold" -Margin "10,5,5,0"
-$grid.Children.Add($resultsLabel)
+$grid.Children.Add($resultsLabel) | Out-Null
 
 # Output text box (requires custom styling)
 $outputTextBox = New-Object System.Windows.Controls.TextBox
@@ -494,12 +494,12 @@ $outputTextBox.Effect = New-DropShadowEffect -Direction 135 -ShadowDepth 3 -Blur
 $outputTextBox.Background = New-GradientBrush -StartColor "#191919" -EndColor "#232323"
 [System.Windows.Controls.Grid]::SetRow($outputTextBox, 6)
 [System.Windows.Controls.Grid]::SetColumnSpan($outputTextBox, 2)
-$grid.Children.Add($outputTextBox)
+$grid.Children.Add($outputTextBox) | Out-Null
 
 $clearButton = New-StyledButton -Content "Clear Results" -Row 7 `
     -Width 120 -Height 30 -Margin "0,5,0,10" `
     -StartColor "#DC5050" -EndColor "#B42828" -BorderColor "#CD5C5C"
-$grid.Children.Add($clearButton)
+$grid.Children.Add($clearButton) | Out-Null
 
 #endregion
 
