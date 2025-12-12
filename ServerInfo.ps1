@@ -1,6 +1,6 @@
 <# 
 .SYNOPSIS
-  Windows Server inventory (PS 5.1). Single CSV with section headings.
+  Windows Server inventory. Single CSV with section headings.
 
 .SECTIONS
   System Identity
@@ -17,7 +17,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# -------- helpers --------
+# helper functions
 function New-DirIfMissing { param([string]$Path)
   if (-not (Test-Path -LiteralPath $Path)) { New-Item -ItemType Directory -Path $Path | Out-Null }
 }
@@ -45,18 +45,18 @@ function Add-HeadingRow { param([string]$Title)
   }
 }
 
-# -------- output target --------
+# Output target
 $OutRoot = 'C:\Temp'
 New-DirIfMissing $OutRoot
 $stamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
 $outCsv = Join-Path $OutRoot "ServerInventory-$stamp.csv"
 
-# master row list (uniform columns for one CSV)
+# Master row list (uniform columns for one CSV)
 $rows = New-Object System.Collections.Generic.List[object]
 
-# =====================================================================================
-# 1) System Identity
-# =====================================================================================
+##############################################
+# System Identity
+##############################################
 $rows.Add((Add-HeadingRow 'System Identity'))
 
 $cs   = Get-CimInstance -ClassName Win32_ComputerSystem
@@ -93,9 +93,9 @@ foreach ($p in $sysPairs) {
   })
 }
 
-# =====================================================================================
-# 2) Operating System
-# =====================================================================================
+##############################################
+# Operating System
+##############################################
 $rows.Add((Add-HeadingRow 'Operating System'))
 
 $os = Get-CimInstance -ClassName Win32_OperatingSystem
@@ -128,9 +128,9 @@ foreach ($p in $osPairs) {
   })
 }
 
-# =====================================================================================
-# 3) Security & Identity
-# =====================================================================================
+##############################################
+# Security & Identity
+##############################################
 $rows.Add((Add-HeadingRow 'Security & Identity'))
 
 $localAdmins = Try-Run { Get-LocalGroupMember -Group 'Administrators' | Select-Object -ExpandProperty Name }
@@ -226,9 +226,9 @@ foreach ($u in $updates) {
   })
 }
 
-# =====================================================================================
-# 5) Networking
-# =====================================================================================
+##############################################
+# Networking
+##############################################
 $rows.Add((Add-HeadingRow 'Networking'))
 
 $adapters = Get-NetAdapter | Select-Object Name, InterfaceDescription, Status, LinkSpeed, MacAddress
@@ -297,9 +297,9 @@ foreach ($fp in $fwProf) {
   })
 }
 
-# =====================================================================================
-# 6) Windows Roles & Features
-# =====================================================================================
+##############################################
+# Windows Roles & Features
+##############################################
 $rows.Add((Add-HeadingRow 'Windows Roles & Features'))
 
 Import-Module ServerManager -ErrorAction SilentlyContinue
