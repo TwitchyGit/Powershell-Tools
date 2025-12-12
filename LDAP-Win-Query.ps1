@@ -11,7 +11,7 @@ $connection.SessionOptions.ProtocolVersion = 3
 $connection.AuthType = [System.DirectoryServices.Protocols.AuthType]::Negotiate
 
 try {
-    ##### 1. Ask RootDSE what naming contexts exist #####
+    # Ask RootDSE what naming contexts exist
     $rootReq = [System.DirectoryServices.Protocols.SearchRequest]::new(
         "",
         "(objectClass=*)",
@@ -29,7 +29,7 @@ try {
     Write-Host "Default NC:"
     $default
 
-    ##### 2. Do a simple search directly under the first naming context #####
+    # Do a simple search directly under the first naming context
     $base = $contexts[0]   # pick whichever NC makes sense
     Write-Host "`nTesting base DN: '$base'"
 
@@ -48,7 +48,7 @@ try {
         Select-Object -First 10 |
         ForEach-Object { "  DN: $($_.DistinguishedName)" }
 
-    ##### 3. Now try your target base, but built under the naming context #####
+    # Now try your target base, but built under the naming context
     # Replace these with what you *think* the path is, but use the context from above.
     # Example only:
     $yourBase = "ou=person,ou=region,$base"
