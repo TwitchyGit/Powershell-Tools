@@ -24,17 +24,16 @@ param(
     [string[]]$CompareFolders
 )
 
-# =======================
+##################################################
 # VALIDATION
-# =======================
-
+##################################################
 if (-not (Test-Path -Path $GoldenSource -PathType Container)) {
-    Write-Error "GoldenSource folder not found: $GoldenSource"
+    Write-Output "ERROR: GoldenSource folder not found: $GoldenSource"
     exit 1
 }
 
 if (-not $CompareFolders -or $CompareFolders.Count -eq 0) {
-    Write-Error "No compare folders defined in `\$CompareFolders"
+    Write-Output "ERROR: No compare folders defined in $CompareFolders"
     exit 1
 }
 
@@ -45,21 +44,20 @@ foreach ($folder in $CompareFolders) {
         $validCompareFolders += $folder
     }
     else {
-        Write-Warning "Compare folder not found and will be skipped: $folder"
+        Write-Output "ERROR: Compare folder not found and will be skipped: $folder"
     }
 }
 
 if ($validCompareFolders.Count -eq 0) {
-    Write-Error "None of the compare folders exist. Nothing to do"
+    Write-Output "ERROR: None of the compare folders exist. Nothing to do"
     exit 1
 }
 
-# =======================
+##################################################
 # COLLECT FILE LISTS
-# =======================
-
+##################################################
 # Golden source files (non recursive, change if you want recursion)
-$goldenFiles = Get-ChildItem -Path $GoldenSource -File -ErrorAction Stop
+$goldenFiles = Get-ChildItem -Recurse -Path $GoldenSource -File -ErrorAction Stop
 
 # All files in compare folders
 $allCompareFiles = @()
@@ -78,19 +76,17 @@ foreach ($folder in $validCompareFolders) {
     $allCompareFiles += $folderFiles
 }
 
-# =======================
-# PART 1
+##################################################
 # Compare each golden file
-# =======================
-
+##################################################
 $comparisonReport = foreach ($g in $goldenFiles) {
-    $matches = $allCompareFiles | Where-Object { $_.Name -eq $g.Name }
+    $checkMatches = $allCompareFiles | Where-Object { $_.Name -eq $g.Name }
 
     $goldenTime   = $g.LastWriteTime
     $goldenLength = $g.Length
 
     # Any compare file strictly newer than golden
-    $newerMatches = $matches | Where-Object { $_.LastWriteTime -gt $goldenTime }
+    $newerMatches = $checkMatches | Where-Object { $_.LastWriteTime -gt $goldenTime }
 
     if ($newerMatches) {
         # Pick the newest of the newer ones
@@ -98,8 +94,7 @@ $comparisonReport = foreach ($g in $goldenFiles) {
         $status = "Newer in $($newest.Folder)"
         $newestFolder = $newest.Folder
         $newestTime   = $newest.LastWriteTime
-    }
-    else {
+    } else {
         # No compare copy is newer than golden
         $status = 'No change'
         $newestFolder = $GoldenSource
@@ -116,17 +111,15 @@ $comparisonReport = foreach ($g in $goldenFiles) {
     }
 }
 
-Write-Output ''
-Write-Output '=== Golden source comparison (Newer in <folder> or No change) ==='
-$comparisonReport |
-    Sort-Object FileName |
+Write-Output "`n** Golden source comparison (Newer in <folder> or No change)"
+$comparisonReport | Sort-Object FileName |
     Format-Table FileName, Status, NewestLocation, NewestTime, GoldenSourceTime -AutoSize
+$comparisonReport | Sort-Object FileName |
+    Export-Csv -Path .\Compare-GoldenSource.csv -NoTypeInformation -UseCulture -Force
 
-# =======================
-# PART 2
+##################################################
 # Files only in compare folders
-# =======================
-
+##################################################
 $goldenNames = $goldenFiles.Name
 
 $compareOnly = $allCompareFiles |
@@ -145,8 +138,8 @@ $extraFilesReport = $compareOnly |
         }
     }
 
-Write-Output ''
-Write-Output '=== Files not found in GoldenSource (newest copy only) ==='
-$extraFilesReport |
-    Sort-Object FileName |
+Write-Output "`n** Files not found in GoldenSource (newest copy only)"
+$extraFilesReport | Sort-Object FileName |
     Format-Table FileName, Folder, NewestTime, FullName -AutoSize
+$extraFilesReport | Sort-Object FileName | Export-Csv -Path .\Compare-FilesNotFound.csv -NoTypeInformation -UseCulture -Force
+
