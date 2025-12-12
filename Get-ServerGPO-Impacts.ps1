@@ -96,9 +96,8 @@ $results = foreach ($appHost in $servers.Keys) {
     }
 }
 
-# ============================================================================
-# SECTION 1: GENERATE SUMMARY BY APPHOST
-# ============================================================================
+##################################################
+# GENERATE SUMMARY BY APPHOST
 # This section creates detailed summaries for each AppHost showing:
 # - Individual server GPO counts
 # - OU locations
@@ -151,9 +150,8 @@ foreach ($appHost in ($servers.Keys | Sort-Object)) {
     }
 }
 
-# ============================================================================
-# SECTION 2: OVERALL SUMMARY BY APPHOST
-# ============================================================================
+##################################################
+# OVERALL SUMMARY BY APPHOST
 # This section creates a high-level comparison table across all AppHosts
 # Shows: server count, total GPOs, average GPOs per server, and enforced counts
 
@@ -178,18 +176,17 @@ $overallSummary = $results | Group-Object AppHost | Select-Object @{
 
 $overallSummary | Format-Table -AutoSize
 
-# ============================================================================
-# SECTION 3: DETAILED GPO LIST
-# ============================================================================
+##################################################
+# DETAILED GPO LIST
+##################################################
 # This section shows every GPO assignment with full details
 # Sorted by AppHost, then Server, then GPO order for easy review
 
 Write-Output "`n============== DETAILED GPO LIST BY APPHOST ============="
 $results | Sort-Object AppHost, FullName, Order | Format-Table AppHost, FullName, GPOName, Enforced, Order, Target -AutoSize
 
-# ============================================================================
-# SECTION 4: GRAND TOTALS
-# ============================================================================
+##################################################
+# GRAND TOTALS
 # Final summary showing overall statistics across all AppHosts and domains
 
 Write-Output "`n===================== GRAND TOTALS ====================="
