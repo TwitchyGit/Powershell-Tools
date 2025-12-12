@@ -19,8 +19,6 @@
 
 .NOTES
     Requires: Active Directory PowerShell module and ADAccountsMonitor.psm1
-    Author: Account Health Monitor
-    Version: 1.0
 #>
 
 param(
