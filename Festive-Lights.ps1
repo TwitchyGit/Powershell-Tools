@@ -505,10 +505,15 @@ $timer.Interval = [TimeSpan]::FromMilliseconds(33)
 $timer.Add_Tick({ Update-Twinkles })
 $timer.Start()
 
-# Show the window and start the application's message loop
+# Show the window and start the message loop
 $app = [System.Windows.Application]::Current
+
 if (-not $app) {
     $app = New-Object System.Windows.Application
+    [void]$app.Run($window)
+} else {
+    # App already exists in this session, so do not create a second one
+    [void]$window.ShowDialog()
 }
 
 # If the app is already running (ISE etc) do not call Run again
