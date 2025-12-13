@@ -41,11 +41,11 @@ $sceneH = [double]$window.Height
 
 # Sky gradient background
 $sky = New-Object System.Windows.Media.LinearGradientBrush
-$sky.StartPoint = New-Object System.Windows.Point(0.5,0.0)
-$sky.EndPoint = New-Object System.Windows.Point(0.5,1.0)
-$sky.GradientStops.Add((New-Object System.Windows.Media.GradientStop(([System.Windows.Media.Color]::FromRgb(8,12,35)),0.0))) | Out-Null
-$sky.GradientStops.Add((New-Object System.Windows.Media.GradientStop(([System.Windows.Media.Color]::FromRgb(18,22,60)),0.55))) | Out-Null
-$sky.GradientStops.Add((New-Object System.Windows.Media.GradientStop(([System.Windows.Media.Colors]::Black),1.0))) | Out-Null
+$sky.StartPoint = New-Object System.Windows.Point(0.5, 0.0)
+$sky.EndPoint = New-Object System.Windows.Point(0.5, 1.0)
+$sky.GradientStops.Add((New-Object System.Windows.Media.GradientStop(([System.Windows.Media.Color]::FromRgb(8,12,35)), 0.0)))
+$sky.GradientStops.Add((New-Object System.Windows.Media.GradientStop(([System.Windows.Media.Color]::FromRgb(18,22,60)), 0.55)))
+$sky.GradientStops.Add((New-Object System.Windows.Media.GradientStop(([System.Windows.Media.Colors]::Black), 1.0)))
 $window.Background = $sky
 
 $canvas = New-Object System.Windows.Controls.Canvas
@@ -90,8 +90,8 @@ function Draw-BackgroundStars {
         $e.Fill = [System.Windows.Media.Brushes]::White
         $base = (Get-Random -Minimum 5 -Maximum 60) / 100.0
         $e.Opacity = $base
-        [System.Windows.Controls.Canvas]::SetLeft($e,(Get-Random -Minimum 0 -Maximum ([int]$sceneW))) | Out-Null
-        [System.Windows.Controls.Canvas]::SetTop($e,(Get-Random -Minimum 0 -Maximum ([int]$sceneH))) | Out-Null
+        [System.Windows.Controls.Canvas]::SetLeft($e, (Get-Random -Minimum 0 -Maximum ([int]$sceneW)))
+        [System.Windows.Controls.Canvas]::SetTop($e, (Get-Random -Minimum 0 -Maximum ([int]$sceneH)))
         $canvas.Children.Add($e) | Out-Null
         $script:BgStars += @{ Shape = $e; BaseOpacity = $base }
     }
@@ -104,19 +104,19 @@ function Draw-BackgroundStars {
         $e.Height = $sz
         
         $g = New-Object System.Windows.Media.RadialGradientBrush
-        $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop([System.Windows.Media.Colors]::White,0.0))) | Out-Null
+        $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop([System.Windows.Media.Colors]::White, 0.0)))
         $mid = [System.Windows.Media.Colors]::White
         $mid.A = 160
-        $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop($mid,0.35))) | Out-Null
+        $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop($mid, 0.35)))
         $fade = [System.Windows.Media.Colors]::White
         $fade.A = 0
-        $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop($fade,1.0))) | Out-Null
+        $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop($fade, 1.0)))
         
         $e.Fill = $g
         $base = (Get-Random -Minimum 55 -Maximum 95) / 100.0
         $e.Opacity = $base
-        [System.Windows.Controls.Canvas]::SetLeft($e,(Get-Random -Minimum 0 -Maximum ([int]$sceneW))) | Out-Null
-        [System.Windows.Controls.Canvas]::SetTop($e,(Get-Random -Minimum 0 -Maximum ([int]($sceneH * 0.75)))) | Out-Null
+        [System.Windows.Controls.Canvas]::SetLeft($e, (Get-Random -Minimum 0 -Maximum ([int]$sceneW)))
+        [System.Windows.Controls.Canvas]::SetTop($e, (Get-Random -Minimum 0 -Maximum ([int]($sceneH * 0.75))))
         $canvas.Children.Add($e) | Out-Null
         $script:BrightStars += @{ Shape = $e; BaseOpacity = $base }
     }
@@ -177,8 +177,8 @@ function Draw-Presents {
         $shadow.RadiusX = 10
         $shadow.RadiusY = 10
         $shadow.Fill = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.Color]::FromArgb(70,0,0,0))
-        [System.Windows.Controls.Canvas]::SetLeft($shadow, $x + 6) | Out-Null
-        [System.Windows.Controls.Canvas]::SetTop($shadow, $y + 6) | Out-Null
+        [System.Windows.Controls.Canvas]::SetLeft($shadow, ($x + 6))
+        [System.Windows.Controls.Canvas]::SetTop($shadow, ($y + 6))
         $canvas.Children.Add($shadow) | Out-Null
         
         # Box with gradient
@@ -189,21 +189,21 @@ function Draw-Presents {
         $box.RadiusY = 8
         
         $grad = New-Object System.Windows.Media.LinearGradientBrush
-        $grad.StartPoint = New-Object System.Windows.Point(0,0)
-        $grad.EndPoint = New-Object System.Windows.Point(1,1)
+        $grad.StartPoint = New-Object System.Windows.Point(0, 0)
+        $grad.EndPoint = New-Object System.Windows.Point(1, 1)
         
         $dark = $col
         $dark.R = [byte]($dark.R * 0.7)
         $dark.G = [byte]($dark.G * 0.7)
         $dark.B = [byte]($dark.B * 0.7)
         
-        $grad.GradientStops.Add((New-Object System.Windows.Media.GradientStop($col,0.0))) | Out-Null
-        $grad.GradientStops.Add((New-Object System.Windows.Media.GradientStop($col,0.35))) | Out-Null
-        $grad.GradientStops.Add((New-Object System.Windows.Media.GradientStop($dark,1.0))) | Out-Null
+        $grad.GradientStops.Add((New-Object System.Windows.Media.GradientStop($col, 0.0)))
+        $grad.GradientStops.Add((New-Object System.Windows.Media.GradientStop($col, 0.35)))
+        $grad.GradientStops.Add((New-Object System.Windows.Media.GradientStop($dark, 1.0)))
         
         $box.Fill = $grad
-        [System.Windows.Controls.Canvas]::SetLeft($box, $x) | Out-Null
-        [System.Windows.Controls.Canvas]::SetTop($box, $y) | Out-Null
+        [System.Windows.Controls.Canvas]::SetLeft($box, $x)
+        [System.Windows.Controls.Canvas]::SetTop($box, $y)
         $canvas.Children.Add($box) | Out-Null
         
         # Highlight
@@ -213,8 +213,8 @@ function Draw-Presents {
         $shine.RadiusX = 6
         $shine.RadiusY = 6
         $shine.Fill = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.Color]::FromArgb(45,255,255,255))
-        [System.Windows.Controls.Canvas]::SetLeft($shine, $x + 8) | Out-Null
-        [System.Windows.Controls.Canvas]::SetTop($shine, $y + 4) | Out-Null
+        [System.Windows.Controls.Canvas]::SetLeft($shine, ($x + 8))
+        [System.Windows.Controls.Canvas]::SetTop($shine, ($y + 4))
         $canvas.Children.Add($shine) | Out-Null
         
         # Ribbon
@@ -225,16 +225,16 @@ function Draw-Presents {
         $ribV.Width = 10
         $ribV.Height = $h
         $ribV.Fill = $rcol
-        [System.Windows.Controls.Canvas]::SetLeft($ribV, $centerX - 5.0) | Out-Null
-        [System.Windows.Controls.Canvas]::SetTop($ribV, $y) | Out-Null
+        [System.Windows.Controls.Canvas]::SetLeft($ribV, ($centerX - 5.0))
+        [System.Windows.Controls.Canvas]::SetTop($ribV, $y)
         $canvas.Children.Add($ribV) | Out-Null
         
         $ribH = New-Object System.Windows.Shapes.Rectangle
         $ribH.Width = $w
         $ribH.Height = 10
         $ribH.Fill = $rcol
-        [System.Windows.Controls.Canvas]::SetLeft($ribH, $x) | Out-Null
-        [System.Windows.Controls.Canvas]::SetTop($ribH, ($y + ($h / 2.0) - 5.0)) | Out-Null
+        [System.Windows.Controls.Canvas]::SetLeft($ribH, $x)
+        [System.Windows.Controls.Canvas]::SetTop($ribH, (($y + ($h / 2.0)) - 5.0))
         $canvas.Children.Add($ribH) | Out-Null
         
         # Bow
@@ -244,25 +244,25 @@ function Draw-Presents {
         $knot.Width = 8
         $knot.Height = 8
         $knot.Fill = $rcol
-        [System.Windows.Controls.Canvas]::SetLeft($knot, $centerX - 4.0) | Out-Null
-        [System.Windows.Controls.Canvas]::SetTop($knot, $bowY) | Out-Null
+        [System.Windows.Controls.Canvas]::SetLeft($knot, ($centerX - 4.0))
+        [System.Windows.Controls.Canvas]::SetTop($knot, $bowY)
         $canvas.Children.Add($knot) | Out-Null
         
         $bowL = New-Object System.Windows.Shapes.Polygon
         $bowL.Fill = $rcol
         $pcl = New-Object System.Windows.Media.PointCollection
-        $pcl.Add((New-Object System.Windows.Point($centerX, $bowY + 4))) | Out-Null
-        $pcl.Add((New-Object System.Windows.Point($centerX - 18, $bowY - 10))) | Out-Null
-        $pcl.Add((New-Object System.Windows.Point($centerX - 6, $bowY + 2))) | Out-Null
+        $pcl.Add((New-Object System.Windows.Point($centerX, ($bowY + 4))))
+        $pcl.Add((New-Object System.Windows.Point(($centerX - 18), ($bowY - 10))))
+        $pcl.Add((New-Object System.Windows.Point(($centerX - 6), ($bowY + 2))))
         $bowL.Points = $pcl
         $canvas.Children.Add($bowL) | Out-Null
         
         $bowR = New-Object System.Windows.Shapes.Polygon
         $bowR.Fill = $rcol
         $pcr = New-Object System.Windows.Media.PointCollection
-        $pcr.Add((New-Object System.Windows.Point($centerX, $bowY + 4))) | Out-Null
-        $pcr.Add((New-Object System.Windows.Point($centerX + 18, $bowY - 10))) | Out-Null
-        $pcr.Add((New-Object System.Windows.Point($centerX + 6, $bowY + 2))) | Out-Null
+        $pcr.Add((New-Object System.Windows.Point($centerX, ($bowY + 4))))
+        $pcr.Add((New-Object System.Windows.Point(($centerX + 18), ($bowY - 10))))
+        $pcr.Add((New-Object System.Windows.Point(($centerX + 6), ($bowY + 2))))
         $bowR.Points = $pcr
         $canvas.Children.Add($bowR) | Out-Null
     }
@@ -296,20 +296,20 @@ function Create-Lights {
         $c = $lightColors[$ci]
         
         $g = New-Object System.Windows.Media.RadialGradientBrush
-        $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop($c,0.0))) | Out-Null
+        $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop($c, 0.0)))
         $mid = $c
         $mid.A = 120
-        $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop($mid,0.40))) | Out-Null
+        $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop($mid, 0.40)))
         $fade = $c
         $fade.A = 0
-        $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop($fade,1.0))) | Out-Null
+        $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop($fade, 1.0)))
         
         $glow.Fill = $g
         $baseGO = 0.70 + (Rand01 / 6.0)
         $glow.Opacity = $baseGO
         
-        [System.Windows.Controls.Canvas]::SetLeft($glow, $x - 9) | Out-Null
-        [System.Windows.Controls.Canvas]::SetTop($glow, $y - 9) | Out-Null
+        [System.Windows.Controls.Canvas]::SetLeft($glow, ($x - 9))
+        [System.Windows.Controls.Canvas]::SetTop($glow, ($y - 9))
         $canvas.Children.Add($glow) | Out-Null
         
         # Core
@@ -319,8 +319,8 @@ function Create-Lights {
         $core.Fill = New-Object System.Windows.Media.SolidColorBrush($c)
         $core.Opacity = 0.85
         
-        [System.Windows.Controls.Canvas]::SetLeft($core, $x - 3.5) | Out-Null
-        [System.Windows.Controls.Canvas]::SetTop($core, $y - 3.5) | Out-Null
+        [System.Windows.Controls.Canvas]::SetLeft($core, ($x - 3.5))
+        [System.Windows.Controls.Canvas]::SetTop($core, ($y - 3.5))
         $canvas.Children.Add($core) | Out-Null
         
         $script:Lights += @{
@@ -345,13 +345,13 @@ function Create-Snow {
         $snow.Height = $size * 2
         
         $g = New-Object System.Windows.Media.RadialGradientBrush
-        $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop([System.Windows.Media.Colors]::White,0.0))) | Out-Null
+        $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop([System.Windows.Media.Colors]::White, 0.0)))
         $mid = [System.Windows.Media.Colors]::White
         $mid.A = 110
-        $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop($mid,0.35))) | Out-Null
+        $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop($mid, 0.35)))
         $fade = [System.Windows.Media.Colors]::White
         $fade.A = 0
-        $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop($fade,1.0))) | Out-Null
+        $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop($fade, 1.0)))
         
         $snow.Fill = $g
         $baseO = 0.22 + (Rand01 / 6.0)
@@ -360,8 +360,8 @@ function Create-Snow {
         $x = Rand01 * $sceneW
         $y = Rand01 * $sceneH
         
-        [System.Windows.Controls.Canvas]::SetLeft($snow, $x) | Out-Null
-        [System.Windows.Controls.Canvas]::SetTop($snow, $y) | Out-Null
+        [System.Windows.Controls.Canvas]::SetLeft($snow, $x)
+        [System.Windows.Controls.Canvas]::SetTop($snow, $y)
         $canvas.Children.Add($snow) | Out-Null
         
         $script:SnowFlakes += @{
@@ -419,13 +419,13 @@ function Update-Scene {
                 $l.Core.Fill = New-Object System.Windows.Media.SolidColorBrush($c)
                 
                 $g = New-Object System.Windows.Media.RadialGradientBrush
-                $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop($c,0.0))) | Out-Null
+                $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop($c, 0.0)))
                 $mid = $c
                 $mid.A = 120
-                $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop($mid,0.40))) | Out-Null
+                $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop($mid, 0.40)))
                 $fade = $c
                 $fade.A = 0
-                $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop($fade,1.0))) | Out-Null
+                $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop($fade, 1.0)))
                 $l.Glow.Fill = $g
             }
             
@@ -446,8 +446,8 @@ function Update-Scene {
             $s.X = Rand01 * $sceneW
         }
         
-        [System.Windows.Controls.Canvas]::SetLeft($s.Shape, $s.X) | Out-Null
-        [System.Windows.Controls.Canvas]::SetTop($s.Shape, $s.Y) | Out-Null
+        [System.Windows.Controls.Canvas]::SetLeft($s.Shape, $s.X)
+        [System.Windows.Controls.Canvas]::SetTop($s.Shape, $s.Y)
         
         if (ShouldTwinkle 35) {
             $s.Shape.Opacity = Clamp ($s.BaseO + ((Get-Random -Minimum -10 -Maximum 11)/100.0)) 0.12 0.60
@@ -470,8 +470,8 @@ function Update-Scene {
         $fade = Clamp (1.0 - ($st.Life / [double]$st.MaxLife)) 0 1
         $st.Shape.Opacity = 0.85 * $fade
         
-        $st.Shape.X1 += $st.VX
-        $st.Shape.Y1 += $st.VY
+        $st.Shape.X1 = $st.Shape.X1 + $st.VX
+        $st.Shape.Y1 = $st.Shape.Y1 + $st.VY
         $st.Shape.X2 = $st.Shape.X1 - $st.Len
         $st.Shape.Y2 = $st.Shape.Y1 - ($st.Len * 0.25)
         
