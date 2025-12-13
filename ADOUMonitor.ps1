@@ -22,7 +22,7 @@
     Defaults to C:\AD_OU_Monitor
 
 .EXAMPLE
-    .\AD_OU_Monitor.ps1 -Domains "contoso.com","fabrikam.com" -OutputRoot "D:\Monitoring\AD_OUs"
+    .\AD_OU_Monitor.ps1 -Domains "contoso.com","fabrikam.com" -OutputRoot "D:\Scripts\AD_OUs"
 
 .NOTES
     Requires: Active Directory and Group Policy PowerShell modules
