@@ -7,7 +7,7 @@
     It identifies accounts that are disabled, locked out, expired, or have expired passwords.
     Results are exported to CSV and email notifications are sent when issues are detected.
     
-    The script expects the ConfigModule to define:
+    The script expects the Configuration.psm1 file to define:
     - $Environment: The current environment name (e.g., "Production", "Test")
     - $AccountList: A hashtable where keys are domain names and values are arrays of SamAccountNames
 
@@ -261,14 +261,14 @@ function Send-AccountHealthEmail {
 
 #region Main Script Logic
 
-# Validate that ConfigModule has provided required variables
+# Validate that Configuration.psm1 has provided required variables
 if (-not (Get-Variable -Name Environment -ErrorAction SilentlyContinue)) {
-    Write-Output 'ERROR: Environment variable not defined by ConfigModule'
+    Write-Output 'ERROR: Environment variable not defined by Configuration.psm1'
     exit 1
 }
 
 if (-not (Get-Variable -Name AccountList -ErrorAction SilentlyContinue)) {
-    Write-Output 'ERROR: AccountList variable not defined by ConfigModule'
+    Write-Output 'ERROR: AccountList variable not defined by Configuration.psm1'
     exit 1
 }
 
