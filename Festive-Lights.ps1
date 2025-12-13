@@ -1,15 +1,15 @@
+#requires -Version 5.1
 Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
 
 ##################################################
-# Window, canvas
+# Window and canvas
 ##################################################
 $window = New-Object System.Windows.Window
 $window.Title = "Twinkling Christmas Tree"
 $window.Width = 900
 $window.Height = 700
-$window.Background = [System.Windows.Media.Brushes]::Black
 $window.WindowStartupLocation = "CenterScreen"
 
 $canvas = New-Object System.Windows.Controls.Canvas
@@ -30,25 +30,23 @@ function New-SolidBrush {
 function New-RadialGlowBrush {
     param(
         [System.Windows.Media.Color]$Color,
-        [double]$CoreStop = 0.0,
-        [double]$MidStop = 0.35,
-        [double]$EdgeStop = 1.0
+        [byte]$MidAlpha = 120
     )
     $g = New-Object System.Windows.Media.RadialGradientBrush
-    $g.GradientOrigin = New-Object System.Windows.Point(0.5,0.5)
     $g.Center = New-Object System.Windows.Point(0.5,0.5)
+    $g.GradientOrigin = New-Object System.Windows.Point(0.5,0.5)
     $g.RadiusX = 0.5
     $g.RadiusY = 0.5
 
     $c1 = $Color
     $c2 = $Color
     $c3 = $Color
-    $c2.A = 120
+    $c2.A = $MidAlpha
     $c3.A = 0
 
-    $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop($c1,$CoreStop))) | Out-Null
-    $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop($c2,$MidStop)))  | Out-Null
-    $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop($c3,$EdgeStop))) | Out-Null
+    $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop($c1,0.0))) | Out-Null
+    $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop($c2,0.35))) | Out-Null
+    $g.GradientStops.Add((New-Object System.Windows.Media.GradientStop($c3,1.0))) | Out-Null
     $g
 }
 
@@ -70,14 +68,14 @@ function Clamp {
 $sceneW = [double]$window.Width
 $sceneH = [double]$window.Height
 
-$treeCenterX = $sceneW / 2
-$treeTopY = 70
-$treeHeight = 440
+$treeCenterX = $sceneW / 2.0
+$treeTopY = 70.0
+$treeHeight = 440.0
 $treeBaseY = $treeTopY + $treeHeight
-$treeMaxHalfWidth = 240
+$treeMaxHalfWidth = 240.0
 
-$trunkHeight = 75
-$trunkWidth = 50
+$trunkHeight = 75.0
+$trunkWidth = 50.0
 
 $branchStroke = New-SolidBrush ([System.Windows.Media.Color]::FromRgb(10,120,35))
 $branchStroke2 = New-SolidBrush ([System.Windows.Media.Color]::FromRgb(12,95,30))
@@ -112,11 +110,77 @@ $starSegmentColors = @(
 # Storage
 ##################################################
 $script:BranchShapes = @()
-$script:LightObjs = @()   # each: @{Glow=Ellipse; Core=Ellipse; ColorIndex=int; BaseOpacity=double}
-$script:BgStars = @()     # each: @{Shape=Ellipse; BaseOpacity=double}
-$script:StarSegments = @()# each: @{Shape=Polygon; BaseOpacity=double}
-$script:Presents = @()
+$script:LightObjs = @()         # @{Glow; Core; BaseOpacity; ColorIndex; X; Y}
+$script:BgStars = @()           # @{Shape; BaseOpacity}
+$script:BrightStars = @()       # @{Shape; BaseOpacity}
+$script:StarSegments = @()      # @{Shape; BaseOpacity}
+$script:Snow = @()              # @{Glow; Core; X; Y; VX; VY; Size; BaseOpacity}
+$script:Village = @()           # @{Shape; BaseOpacity; WarmIndex}
+$script:ShootingStars = @()     # @{Glow; Core; Active; X; Y; VX; VY; Life; MaxLife}
+$script:nextShootAt = 0
 $script:frame = 0
+
+$script:keyBoost = 0.0
+$script:wind = 0.0
+$script:windTicks = 0
+
+# Elastic sway state
+$script:branchSwayPos = 0.0
+$script:branchSwayVel = 0.0
+$script:branchSwayTarget = 0.0
+
+# Snow drift state
+$script:snowDriftPos = 0.0
+$script:snowDriftVel = 0.0
+$script:snowDriftTarget = 0.0
+
+# One shared transform for all branches
+$script:branchTranslate = New-Object System.Windows.Media.TranslateTransform(0,0)
+$script:branchRotate = New-Object System.Windows.Media.RotateTransform(0)
+$script:branchXform = New-Object System.Windows.Media.TransformGroup
+$script:branchXform.Children.Add($script:branchRotate) | Out-Null
+$script:branchXform.Children.Add($script:branchTranslate) | Out-Null
+
+##################################################
+# Sky gradient background that shifts slowly
+##################################################
+$script:skyBrush = New-Object System.Windows.Media.LinearGradientBrush
+$script:skyBrush.StartPoint = New-Object System.Windows.Point(0.5,0.0)
+$script:skyBrush.EndPoint = New-Object System.Windows.Point(0.5,1.0)
+$script:skyTopStop = New-Object System.Windows.Media.GradientStop(([System.Windows.Media.Colors]::MidnightBlue),0.0)
+$script:skyMidStop = New-Object System.Windows.Media.GradientStop(([System.Windows.Media.Colors]::DarkSlateBlue),0.55)
+$script:skyHznStop = New-Object System.Windows.Media.GradientStop(([System.Windows.Media.Colors]::Black),1.0)
+$script:skyBrush.GradientStops.Add($script:skyTopStop) | Out-Null
+$script:skyBrush.GradientStops.Add($script:skyMidStop) | Out-Null
+$script:skyBrush.GradientStops.Add($script:skyHznStop) | Out-Null
+$window.Background = $script:skyBrush
+
+function Update-Sky {
+    $cycle = 2400.0
+    $t = [Math]::Sin(($script:frame / $cycle) * 2.0 * [Math]::PI) * 0.5 + 0.5
+
+    $nightTop = [System.Windows.Media.Color]::FromRgb(8,12,35)
+    $dawnTop  = [System.Windows.Media.Color]::FromRgb(30,35,85)
+
+    $nightMid = [System.Windows.Media.Color]::FromRgb(6,8,20)
+    $dawnMid  = [System.Windows.Media.Color]::FromRgb(22,22,55)
+
+    $top = New-Object System.Windows.Media.Color
+    $top.A = 255
+    $top.R = [byte](($nightTop.R * (1-$t)) + ($dawnTop.R * $t))
+    $top.G = [byte](($nightTop.G * (1-$t)) + ($dawnTop.G * $t))
+    $top.B = [byte](($nightTop.B * (1-$t)) + ($dawnTop.B * $t))
+
+    $mid = New-Object System.Windows.Media.Color
+    $mid.A = 255
+    $mid.R = [byte](($nightMid.R * (1-$t)) + ($dawnMid.R * $t))
+    $mid.G = [byte](($nightMid.G * (1-$t)) + ($dawnMid.G * $t))
+    $mid.B = [byte](($nightMid.B * (1-$t)) + ($dawnMid.B * $t))
+
+    $script:skyTopStop.Color = $top
+    $script:skyMidStop.Color = $mid
+    $script:skyHznStop.Color = [System.Windows.Media.Colors]::Black
+}
 
 ##################################################
 # Geometry helpers
@@ -137,23 +201,21 @@ function Is-InTreeCone {
 }
 
 ##################################################
-# Draw background stars
+# Background stars and brighter stars
 ##################################################
 function Draw-BackgroundStars {
-    param([int]$Count = 200)
+    param([int]$Count = 200, [int]$BrightCount = 100)
 
     for ($i=0; $i -lt $Count; $i++) {
         $x = Get-Random -Minimum 0 -Maximum ([int]$sceneW)
         $y = Get-Random -Minimum 0 -Maximum ([int]$sceneH)
-
         if (Is-InTreeCone $x $y) { continue }
 
         $e = New-Object System.Windows.Shapes.Ellipse
         $e.Width = (Get-Random -Minimum 1 -Maximum 3)
         $e.Height = $e.Width
-        $c = $bgStarPalette[(Get-Random -Maximum $bgStarPalette.Count)]
-        $e.Fill = New-SolidBrush $c
-        $base = (Get-Random -Minimum 15 -Maximum 85) / 100.0
+        $e.Fill = New-SolidBrush ($bgStarPalette[(Get-Random -Maximum $bgStarPalette.Count)])
+        $base = (Get-Random -Minimum 10 -Maximum 70) / 100.0
         $e.Opacity = $base
 
         [System.Windows.Controls.Canvas]::SetLeft($e, $x) | Out-Null
@@ -162,10 +224,31 @@ function Draw-BackgroundStars {
 
         $script:BgStars += @{ Shape = $e; BaseOpacity = $base }
     }
+
+    for ($i=0; $i -lt $BrightCount; $i++) {
+        $x = Get-Random -Minimum 0 -Maximum ([int]$sceneW)
+        $y = Get-Random -Minimum 0 -Maximum ([int]($sceneH * 0.75))
+        if (Is-InTreeCone $x $y) { continue }
+
+        $e = New-Object System.Windows.Shapes.Ellipse
+        $sz = (Get-Random -Minimum 2 -Maximum 5)
+        $e.Width = $sz
+        $e.Height = $sz
+        $c = [System.Windows.Media.Colors]::White
+        $e.Fill = New-RadialGlowBrush -Color $c -MidAlpha 160
+        $base = (Get-Random -Minimum 55 -Maximum 95) / 100.0
+        $e.Opacity = $base
+
+        [System.Windows.Controls.Canvas]::SetLeft($e, $x) | Out-Null
+        [System.Windows.Controls.Canvas]::SetTop($e, $y) | Out-Null
+        $canvas.Children.Add($e) | Out-Null
+
+        $script:BrightStars += @{ Shape = $e; BaseOpacity = $base }
+    }
 }
 
 ##################################################
-# Draw tree branches (no solid fill)
+# Tree branches, no solid fill
 ##################################################
 function Draw-TreeBranches {
     $layers = 22
@@ -177,9 +260,7 @@ function Draw-TreeBranches {
 
         $primaryCount = 10
         for ($p=0; $p -lt $primaryCount; $p++) {
-            $jitterY = (Get-Random -Minimum -6 -Maximum 7)
-            $yy = $y + $jitterY + (Get-Random -Minimum 0 -Maximum ([int]($layerStep * 0.9)))
-
+            $yy = $y + (Get-Random -Minimum -6 -Maximum 7) + (Get-Random -Minimum 0 -Maximum ([int]($layerStep * 0.9)))
             $span = $hw * (0.65 + ((Get-Random -Minimum 0 -Maximum 35) / 100.0))
             $span = Clamp $span 25 $hw
 
@@ -197,6 +278,9 @@ function Draw-TreeBranches {
             $pl.StrokeEndLineCap = "Round"
             $pl.StrokeLineJoin = "Round"
             $pl.Opacity = 0.95
+
+            $pl.RenderTransform = $script:branchXform
+            $pl.RenderTransformOrigin = New-Object System.Windows.Point(0.5,1.0)
 
             $pts = New-Object System.Windows.Media.PointCollection
             $pts.Add((New-Object System.Windows.Point($startX,$startY))) | Out-Null
@@ -234,6 +318,9 @@ function Draw-TreeBranches {
                 $ln.StrokeStartLineCap = "Round"
                 $ln.StrokeEndLineCap = "Round"
                 $ln.Opacity = 0.85
+
+                $ln.RenderTransform = $script:branchXform
+                $ln.RenderTransformOrigin = New-Object System.Windows.Point(0.5,1.0)
 
                 $canvas.Children.Add($ln) | Out-Null
                 $script:BranchShapes += $ln
@@ -282,33 +369,37 @@ function New-LightObject {
         Core = $core
         BaseOpacity = 0.85 + ((Get-Random -Minimum 0 -Maximum 15) / 100.0)
         ColorIndex = -1
+        X = $x
+        Y = $y
     }
+}
+
+function Set-LightColor {
+    param($lightObj,[System.Windows.Media.Color]$Color)
+    $lightObj.Core.Fill = New-SolidBrush $Color
+    $lightObj.Glow.Fill = New-RadialGlowBrush $Color
 }
 
 function Draw-Lights {
     param([int]$Count = 400)
-
     $script:LightObjs = @()
 
     for ($i=0; $i -lt $Count; $i++) {
         $t = ($i + 0.5) / $Count
         $y = $treeTopY + ($treeHeight * $t) + (Get-Random -Minimum -6 -Maximum 7)
         $hw = Tree-HalfWidthAtY $y
-
         $x = $treeCenterX + (Get-Random -Minimum (-1 * [int]$hw) -Maximum ([int]$hw))
         if (-not (Is-InTreeCone $x $y)) { $i--; continue }
 
         $ci = Get-Random -Maximum $lightPalette.Count
-        $c = $lightPalette[$ci]
-        $o = New-LightObject -x $x -y $y -color $c
+        $o = New-LightObject -x $x -y $y -color $lightPalette[$ci]
         $o.ColorIndex = $ci
-
         $script:LightObjs += $o
     }
 }
 
 ##################################################
-# Multicolour 5 point star with twinkle
+# Multicolour 5 point star
 ##################################################
 function Draw-TopStar {
     $cx = $treeCenterX
@@ -321,9 +412,7 @@ function Draw-TopStar {
     for ($i=0; $i -lt 10; $i++) {
         $ang = (-90 + ($i * 36)) * [Math]::PI / 180.0
         $r = if (($i % 2) -eq 0) { $outerR } else { $innerR }
-        $px = $cx + ($r * [Math]::Cos($ang))
-        $py = $cy + ($r * [Math]::Sin($ang))
-        $points += ,(New-Object System.Windows.Point($px,$py))
+        $points += ,(New-Object System.Windows.Point($cx + ($r * [Math]::Cos($ang)), $cy + ($r * [Math]::Sin($ang))))
     }
 
     $script:StarSegments = @()
@@ -340,8 +429,7 @@ function Draw-TopStar {
         $pc.Add($p3) | Out-Null
         $poly.Points = $pc
 
-        $col = $starSegmentColors[$k]
-        $poly.Fill = New-SolidBrush $col
+        $poly.Fill = New-SolidBrush ($starSegmentColors[$k])
         $poly.Stroke = New-SolidBrush ([System.Windows.Media.Colors]::White)
         $poly.StrokeThickness = 1.0
         $poly.Opacity = 0.95
@@ -353,15 +441,15 @@ function Draw-TopStar {
     $gl = New-Object System.Windows.Shapes.Ellipse
     $gl.Width = 80
     $gl.Height = 80
-    $gl.Fill = New-RadialGlowBrush ([System.Windows.Media.Colors]::Gold)
-    $gl.Opacity = 0.55
+    $gl.Fill = New-RadialGlowBrush ([System.Windows.Media.Colors]::Gold) 140
+    $gl.Opacity = 0.5
     [System.Windows.Controls.Canvas]::SetLeft($gl, $cx - 40) | Out-Null
     [System.Windows.Controls.Canvas]::SetTop($gl, $cy - 40) | Out-Null
     $canvas.Children.Insert(0,$gl) | Out-Null
 }
 
 ##################################################
-# Presents (minimum 4) with ribbons and bows
+# Presents
 ##################################################
 function Draw-Presents {
     $baseY = [double]($treeBaseY + $trunkHeight - 5)
@@ -435,7 +523,7 @@ function Draw-Presents {
         $knot = New-Object System.Windows.Shapes.Ellipse
         $knot.Width = 8
         $knot.Height = 8
-        $knot.Fill = New-Object System.Windows.Media.SolidColorBrush($rcol)
+        $knot.Fill = New-SolidBrush $rcol
         [System.Windows.Controls.Canvas]::SetLeft($knot, ($bx - 4.0)) | Out-Null
         [System.Windows.Controls.Canvas]::SetTop($knot, ($by - 4.0)) | Out-Null
         $canvas.Children.Add($knot) | Out-Null
@@ -443,23 +531,208 @@ function Draw-Presents {
 }
 
 ##################################################
-# Twinkle updates
+# Distant village lights
 ##################################################
-function Set-LightColor {
-    param($lightObj,[System.Windows.Media.Color]$Color)
+function Draw-Village {
+    $script:Village = @()
+    $hznY = [double]($treeBaseY + $trunkHeight + 10)
+    $hznY = Clamp $hznY ($sceneH * 0.72) ($sceneH - 40)
 
-    $lightObj.Core.Fill = New-SolidBrush $Color
-    $lightObj.Glow.Fill = New-RadialGlowBrush $Color
+    $warm = @(
+        [System.Windows.Media.Color]::FromRgb(255,210,120),
+        [System.Windows.Media.Color]::FromRgb(255,180,90),
+        [System.Windows.Media.Color]::FromRgb(255,235,170)
+    )
+
+    $count = 45
+    for ($i=0; $i -lt $count; $i++) {
+        $x = Get-Random -Minimum 10 -Maximum ([int]($sceneW - 10))
+        $y = $hznY + (Get-Random -Minimum -8 -Maximum 12)
+
+        $e = New-Object System.Windows.Shapes.Ellipse
+        $sz = (Get-Random -Minimum 2 -Maximum 5)
+        $e.Width = $sz
+        $e.Height = $sz
+
+        $ci = Get-Random -Maximum $warm.Count
+        $e.Fill = New-RadialGlowBrush -Color $warm[$ci] -MidAlpha 150
+        $base = (Get-Random -Minimum 25 -Maximum 65) / 100.0
+        $e.Opacity = $base
+
+        [System.Windows.Controls.Canvas]::SetLeft($e, $x) | Out-Null
+        [System.Windows.Controls.Canvas]::SetTop($e, $y) | Out-Null
+        $canvas.Children.Add($e) | Out-Null
+
+        $script:Village += @{ Shape = $e; BaseOpacity = $base; WarmIndex = $ci }
+    }
 }
 
-function Update-Twinkles {
+##################################################
+# Snow with glow and drift
+##################################################
+function Draw-Snow {
+    param([int]$Count = 160)
+
+    $script:Snow = @()
+    for ($i=0; $i -lt $Count; $i++) {
+        $x = (Get-Random -Minimum 0 -Maximum ([int]$sceneW)) * 1.0
+        $y = (Get-Random -Minimum 0 -Maximum ([int]$sceneH)) * 1.0
+
+        $size = (Get-Random -Minimum 2 -Maximum 7) * 1.0
+        $vy = (0.7 + ((Get-Random -Minimum 0 -Maximum 190) / 100.0)) * (1.0 + ($size / 10.0))
+        $vx = ((Get-Random -Minimum -40 -Maximum 41) / 100.0)
+
+        $c = [System.Windows.Media.Color]::FromRgb(255,255,255)
+        $glow = New-Object System.Windows.Shapes.Ellipse
+        $glow.Width = $size * 3.0
+        $glow.Height = $size * 3.0
+        $glow.Fill = New-RadialGlowBrush -Color $c -MidAlpha 120
+        $glow.Opacity = 0.35
+
+        $core = New-Object System.Windows.Shapes.Ellipse
+        $core.Width = $size
+        $core.Height = $size
+        $core.Fill = New-SolidBrush $c
+        $core.Opacity = 0.65
+
+        $canvas.Children.Add($glow) | Out-Null
+        $canvas.Children.Add($core) | Out-Null
+
+        [System.Windows.Controls.Canvas]::SetLeft($glow, $x - ($glow.Width/2.0)) | Out-Null
+        [System.Windows.Controls.Canvas]::SetTop($glow, $y - ($glow.Height/2.0)) | Out-Null
+        [System.Windows.Controls.Canvas]::SetLeft($core, $x - ($core.Width/2.0)) | Out-Null
+        [System.Windows.Controls.Canvas]::SetTop($core, $y - ($core.Height/2.0)) | Out-Null
+
+        $script:Snow += @{
+            Glow = $glow
+            Core = $core
+            X = $x
+            Y = $y
+            VX = $vx
+            VY = $vy
+            Size = $size
+            BaseOpacity = 0.35 + ((Get-Random -Minimum 0 -Maximum 30)/100.0)
+        }
+    }
+}
+
+##################################################
+# Shooting stars
+##################################################
+function New-ShootingStar {
+    $x = (Get-Random -Minimum -200 -Maximum ([int]$sceneW)) * 1.0
+    $y = (Get-Random -Minimum 20 -Maximum 220) * 1.0
+
+    $vx = (10.0 + ((Get-Random -Minimum 0 -Maximum 80)/10.0))
+    $vy = (2.0 + ((Get-Random -Minimum 0 -Maximum 50)/10.0))
+
+    $life = 0
+    $maxLife = Get-Random -Minimum 35 -Maximum 75
+
+    $core = New-Object System.Windows.Shapes.Line
+    $core.StrokeThickness = 2.0
+    $core.StrokeStartLineCap = "Round"
+    $core.StrokeEndLineCap = "Round"
+    $core.Opacity = 0.9
+    $core.Stroke = New-SolidBrush ([System.Windows.Media.Colors]::White)
+
+    $glow = New-Object System.Windows.Shapes.Line
+    $glow.StrokeThickness = 6.0
+    $glow.StrokeStartLineCap = "Round"
+    $glow.StrokeEndLineCap = "Round"
+    $glow.Opacity = 0.35
+    $glow.Stroke = New-RadialGlowBrush ([System.Windows.Media.Colors]::White) 140
+
+    $canvas.Children.Add($glow) | Out-Null
+    $canvas.Children.Add($core) | Out-Null
+
+    @{
+        Glow = $glow
+        Core = $core
+        Active = $true
+        X = $x
+        Y = $y
+        VX = $vx
+        VY = $vy
+        Life = $life
+        MaxLife = $maxLife
+    }
+}
+
+function Launch-ShootingStar {
+    $script:ShootingStars += (New-ShootingStar)
+}
+
+##################################################
+# Twinkle and motion updates
+##################################################
+function Apply-LightPositions {
+    param([double]$swayX)
+
+    foreach ($l in $script:LightObjs) {
+        $x = [double]$l.X + $swayX
+        $y = [double]$l.Y
+
+        [System.Windows.Controls.Canvas]::SetLeft($l.Glow, $x - 9.0) | Out-Null
+        [System.Windows.Controls.Canvas]::SetTop($l.Glow, $y - 9.0) | Out-Null
+        [System.Windows.Controls.Canvas]::SetLeft($l.Core, $x - 3.5) | Out-Null
+        [System.Windows.Controls.Canvas]::SetTop($l.Core, $y - 3.5) | Out-Null
+    }
+}
+
+function Update-TwinklesAndMotion {
     $script:frame++
+
+    Update-Sky
+
+    if ($script:keyBoost -gt 0) { $script:keyBoost = Clamp ($script:keyBoost - 0.05) 0 1 }
+
+    if ($script:windTicks -gt 0) {
+        $script:windTicks--
+        $script:wind = $script:wind * 0.92
+    } else {
+        $script:wind = $script:wind * 0.90
+    }
+
+    # Springy elastic branch sway
+    $k = 0.18
+    $d = 0.82
+    $force = ($script:branchSwayTarget - $script:branchSwayPos) * $k
+    $script:branchSwayVel = ($script:branchSwayVel + $force) * $d
+    $script:branchSwayPos = $script:branchSwayPos + $script:branchSwayVel
+
+    # Ease snow drift
+    $k2 = 0.10
+    $d2 = 0.88
+    $force2 = ($script:snowDriftTarget - $script:snowDriftPos) * $k2
+    $script:snowDriftVel = ($script:snowDriftVel + $force2) * $d2
+    $script:snowDriftPos = $script:snowDriftPos + $script:snowDriftVel
+
+    # Apply branch transform
+    $script:branchTranslate.X = $script:branchSwayPos
+    $script:branchRotate.Angle = ($script:branchSwayPos * 0.25)
+    $script:branchRotate.CenterX = $treeCenterX
+    $script:branchRotate.CenterY = ($treeBaseY + 30.0)
+
+    $swayX = [Math]::Sin($script:frame / 6.0) * (6.0 * $script:wind)
+    Apply-LightPositions -swayX $swayX
 
     foreach ($s in $script:BgStars) {
         if (ShouldTwinkle 10) {
-            $shape = $s.Shape
-            $shape.Fill = New-SolidBrush ($bgStarPalette[(Get-Random -Maximum $bgStarPalette.Count)])
-            $shape.Opacity = Clamp ($s.BaseOpacity + ((Get-Random -Minimum -30 -Maximum 31)/100.0)) 0.05 1.0
+            $s.Shape.Fill = New-SolidBrush ($bgStarPalette[(Get-Random -Maximum $bgStarPalette.Count)])
+            $s.Shape.Opacity = Clamp ($s.BaseOpacity + ((Get-Random -Minimum -30 -Maximum 31)/100.0)) 0.05 1.0
+        }
+    }
+
+    foreach ($s in $script:BrightStars) {
+        if (ShouldTwinkle 8) {
+            $s.Shape.Opacity = Clamp ($s.BaseOpacity + ((Get-Random -Minimum -20 -Maximum 21)/100.0)) 0.25 1.0
+        }
+    }
+
+    foreach ($v in $script:Village) {
+        if (ShouldTwinkle 4) {
+            $v.Shape.Opacity = Clamp ($v.BaseOpacity + ((Get-Random -Minimum -15 -Maximum 16)/100.0)) 0.1 0.9
         }
     }
 
@@ -470,11 +743,17 @@ function Update-Twinkles {
             Set-LightColor -lightObj $l -Color $lightPalette[$ci]
         }
 
-        if (ShouldTwinkle 2) {
-            $b = $l.BaseOpacity
-            $l.Glow.Opacity = Clamp ($b + ((Get-Random -Minimum -20 -Maximum 21)/100.0)) 0.25 1.0
-            $l.Core.Opacity = Clamp (0.8 + ((Get-Random -Minimum 0 -Maximum 21)/100.0)) 0.65 1.0
-        }
+        $boost = 0.18 * $script:keyBoost
+        $baseGlow = $l.BaseOpacity
+        $baseCore = 0.78
+
+        $l.Glow.Opacity = Clamp (
+            $baseGlow + $boost + ((Get-Random -Minimum -10 -Maximum 11) / 100.0)
+        ) 0.25 1.0
+
+        $l.Core.Opacity = Clamp (
+            $baseCore + $boost + ((Get-Random -Minimum -6 -Maximum 7) / 100.0)
+        ) 0.65 1.0
     }
 
     foreach ($seg in $script:StarSegments) {
@@ -482,47 +761,120 @@ function Update-Twinkles {
             $seg.Shape.Opacity = Clamp ($seg.BaseOpacity + ((Get-Random -Minimum -25 -Maximum 26)/100.0)) 0.25 1.0
         }
         if (ShouldTwinkle 7) {
-            $k = Get-Random -Maximum $starSegmentColors.Count
-            $seg.Shape.Fill = New-SolidBrush $starSegmentColors[$k]
+            $kStar = Get-Random -Maximum $starSegmentColors.Count
+            $seg.Shape.Fill = New-SolidBrush $starSegmentColors[$kStar]
         }
     }
+
+    foreach ($f in $script:Snow) {
+        $f.X = $f.X + $f.VX + $script:snowDriftPos + (0.55 * $script:wind) + (0.06 * $script:branchSwayPos)
+        $f.Y = $f.Y + $f.VY
+
+        if ($f.X -gt ($sceneW + 20)) { $f.X = -20 }
+        if ($f.X -lt -20) { $f.X = $sceneW + 20 }
+        if ($f.Y -gt ($sceneH + 30)) {
+            $f.Y = -30
+            $f.X = (Get-Random -Minimum 0 -Maximum ([int]$sceneW)) * 1.0
+        }
+
+        $gx = $f.X - ($f.Glow.Width/2.0)
+        $gy = $f.Y - ($f.Glow.Height/2.0)
+        $cx = $f.X - ($f.Core.Width/2.0)
+        $cy = $f.Y - ($f.Core.Height/2.0)
+
+        [System.Windows.Controls.Canvas]::SetLeft($f.Glow, $gx) | Out-Null
+        [System.Windows.Controls.Canvas]::SetTop($f.Glow, $gy) | Out-Null
+        [System.Windows.Controls.Canvas]::SetLeft($f.Core, $cx) | Out-Null
+        [System.Windows.Controls.Canvas]::SetTop($f.Core, $cy) | Out-Null
+
+        if (ShouldTwinkle 35) {
+            $f.Glow.Opacity = Clamp ($f.BaseOpacity + ((Get-Random -Minimum -10 -Maximum 11)/100.0)) 0.15 0.65
+            $f.Core.Opacity = Clamp (0.55 + ((Get-Random -Minimum -15 -Maximum 16)/100.0)) 0.25 0.85
+        }
+    }
+
+    if ($script:nextShootAt -le 0) {
+        $script:nextShootAt = Get-Random -Minimum 80 -Maximum 220
+    } else {
+        $script:nextShootAt--
+        if ($script:nextShootAt -eq 0) {
+            $count = Get-Random -Minimum 1 -Maximum 3
+            for ($i=0; $i -lt $count; $i++) { Launch-ShootingStar }
+        }
+    }
+
+    $alive = @()
+    foreach ($st in $script:ShootingStars) {
+        if (-not $st.Active) { continue }
+
+        $st.Life++
+        $st.X = $st.X + $st.VX
+        $st.Y = $st.Y + $st.VY
+
+        $tail = 45.0
+        $x2 = $st.X
+        $y2 = $st.Y
+        $x1 = $st.X - $tail
+        $y1 = $st.Y - ($tail * 0.25)
+
+        $fade = 1.0 - ($st.Life / [double]$st.MaxLife)
+        $fade = Clamp $fade 0 1
+
+        $st.Core.X1 = $x1; $st.Core.Y1 = $y1
+        $st.Core.X2 = $x2; $st.Core.Y2 = $y2
+        $st.Glow.X1 = $x1; $st.Glow.Y1 = $y1
+        $st.Glow.X2 = $x2; $st.Glow.Y2 = $y2
+        $st.Core.Opacity = 0.85 * $fade
+        $st.Glow.Opacity = 0.35 * $fade
+
+        if ($st.Life -ge $st.MaxLife -or $st.X -gt ($sceneW + 200) -or $st.Y -gt ($sceneH + 200)) {
+            $st.Active = $false
+            $canvas.Children.Remove($st.Core) | Out-Null
+            $canvas.Children.Remove($st.Glow) | Out-Null
+        } else {
+            $alive += $st
+        }
+    }
+    $script:ShootingStars = $alive
 }
+
+##################################################
+# Interactive input
+##################################################
+$window.Add_KeyDown({
+    $script:keyBoost = 1.0
+    $script:wind = 1.0
+    $script:windTicks = Get-Random -Minimum 25 -Maximum 60
+    $script:branchSwayTarget = ((Get-Random -Minimum -100 -Maximum 101) / 100.0) * 10.0
+    $script:snowDriftTarget = ((Get-Random -Minimum -100 -Maximum 101) / 100.0) * 0.9
+})
 
 ##################################################
 # Build scene
 ##################################################
-Draw-BackgroundStars -Count 200
+Draw-BackgroundStars -Count 200 -BrightCount 100
+Draw-Village
 Draw-TreeBranches
 Draw-Lights -Count 400
 Draw-TopStar
 Draw-Presents
+Draw-Snow -Count 170
 
 ##################################################
 # Smooth animation timer
 ##################################################
 $timer = New-Object System.Windows.Threading.DispatcherTimer
 $timer.Interval = [TimeSpan]::FromMilliseconds(33)
-$timer.Add_Tick({ Update-Twinkles })
+$timer.Add_Tick({ Update-TwinklesAndMotion })
 $timer.Start()
 
-# Show the window and start the message loop
+##################################################
+# Run app, safe for reruns
+##################################################
 $app = [System.Windows.Application]::Current
-
 if (-not $app) {
     $app = New-Object System.Windows.Application
     [void]$app.Run($window)
 } else {
-    # App already exists in this session, so do not create a second one
     [void]$window.ShowDialog()
-}
-
-# If the app is already running (ISE etc) do not call Run again
-if ($app.Dispatcher -and $app.Dispatcher.HasShutdownStarted) {
-    $app = New-Object System.Windows.Application
-}
-
-if ($app -and ($app.Windows.Count -eq 0)) {
-    [void]$app.Run($window)
-} else {
-    [void]$window.Show()
 }
