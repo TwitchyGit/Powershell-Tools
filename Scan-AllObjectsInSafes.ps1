@@ -124,7 +124,7 @@ function Invoke-PVWARestMethod {
                 $checkJson = $content | ConvertFrom-Json -ErrorAction Stop
                 # If we get here, it's valid JSON - continue
             } catch {
-                # FIXED: Safe string truncation - check for null before substring
+                # Safe string truncation - check for null before substring
                 $contentPreview = if ($content) { 
                     $content.Substring(0, [Math]::Min(200, $content.Length)) 
                 } else { 
@@ -192,7 +192,7 @@ function Invoke-PVWARestMethod {
                 LogOutput "Retrying in $waitTime seconds..."
                 Start-Sleep -Seconds $waitTime
 
-                # FIXED: Handle authentication expiration (401 Unauthorized)
+                # Handle authentication expiration (401 Unauthorized)
                 # Update script-level token so all future calls use the new token
                 if ($statusCode -eq 401) {
                     LogOutput "Authentication may have expired, attempting to re-authenticate..."
@@ -327,7 +327,7 @@ function Get-AllSafes {
     $offset = 0               # Starting position (0 = first record)
     $limit = 100              # Records per page (100 is API default)
     $moreSafes = $true        # Flag to control pagination loop
-    $seenIds = @{}            # FIXED: Track unique IDs to detect duplicate pagination
+    $seenIds = @{}            # Track unique IDs to detect duplicate pagination
 
     LogOutput "Retrieving all safes..."
 
@@ -344,7 +344,7 @@ function Get-AllSafes {
             # Make API call with authentication header
             $response = Invoke-PVWARestMethod -Uri $uri -Headers @{'Authorization' = $script:AuthTrimmed } -TimeoutSec $ConnectionTimeoutSeconds
 
-            # FIXED: Validate we received a response before proceeding
+            # Validate we received a response before proceeding
             if ([string]::IsNullOrWhiteSpace($response)) {
                 LogError "Received null or empty response for safes at offset $offset"
                 throw "Failed to retrieve safes - API returned no data"
@@ -354,7 +354,7 @@ function Get-AllSafes {
             try {
                 $safesData = $response | ConvertFrom-Json -ErrorAction Stop
             } catch {
-                # FIXED: Safe string truncation
+                # Safe string truncation
                 $responsePreview = if ($response) { 
                     $response.Substring(0, [Math]::Min(200, $response.Length)) 
                 } else { 
@@ -366,7 +366,7 @@ function Get-AllSafes {
 
             # Check if we received safe data in this page
             if ($safesData -and $safesData.value -and $safesData.value.Count -gt 0) {
-                # FIXED: Detect duplicate safes (pagination issue detection)
+                # Detect duplicate safes (pagination issue detection)
                 $duplicatesFound = $false
                 foreach ($safe in $safesData.value) {
                     if ($seenIds.ContainsKey($safe.safeName)) {
@@ -434,7 +434,7 @@ function Get-Users {
         # ExtendedDetails=true includes group memberships and permissions
         $response = Invoke-PVWARestMethod -Uri $PVWAGetUsersUrl -Headers @{'Authorization' = $script:AuthTrimmed } -TimeoutSec $ConnectionTimeoutSeconds
 
-        # FIXED: Validate response before parsing
+        # Validate response before parsing
         if ([string]::IsNullOrWhiteSpace($response)) {
             throw "Failed to retrieve users - API returned no data"
         }
@@ -443,7 +443,7 @@ function Get-Users {
         try {
             return $response | ConvertFrom-Json -ErrorAction Stop
         } catch {
-            # FIXED: Safe string truncation
+            # Safe string truncation
             $responsePreview = if ($response) { 
                 $response.Substring(0, [Math]::Min(200, $response.Length)) 
             } else { 
@@ -479,7 +479,7 @@ function Process-AccountsReport {
         $TargetFile = "Data_PasswordObjects_Bulk.csv"
         $OutputPath = "$ConfDirLogs\$TargetFile"
 
-        # FIXED: Validate output directory exists and is writable before starting long operation
+        # Validate output directory exists and is writable before starting long operation
         $outputDirectory = Split-Path $OutputPath -Parent
         if (-not (Test-Path $outputDirectory)) {
             throw "Output directory does not exist: $outputDirectory"
@@ -536,25 +536,22 @@ function Get-AllAccountsBulk-Streaming {
     $offset = 0                                                 # Starting position for pagination
     $moreAccounts = $true                                       # Flag to control pagination loop
     $processedAccounts = [System.Collections.ArrayList]::new()  # Array list for non-streaming mode
-    $seenIds = @{}                                              # FIXED: Track unique IDs to detect duplicate pagination
-    $scriptStart = Get-Date                                     # FIXED: Track script start time for timeout
-    $maxScriptDuration = 12                                     # FIXED: Maximum runtime in hours
+    $seenIds = @{}                                              # Track unique IDs to detect duplicate pagination
+    $scriptStart = Get-Date                                     # Track script start time for timeout
+    $maxScriptDuration = 12                                     # Maximum runtime in hours
 
     LogOutput "Starting streaming bulk retrieval of accounts..."
 
     # If streaming to file, write CSV header first
     if ($OutputPath) {
         # Define all CSV columns
-        $csvHeader = '"rowid","AccountName","Address","UserName","Platform","ModificationDate","ModifiedBy","LastUsedDate",`
-            "LastUsedBy","Safe","CreatedBy","CreationDate","CPMStatus","Folder","LastTask","CPMErrorDetails","CPMDisabled",`
-            "LastFailDate","LastSuccessVerification","DateTimeNow","ResetImmediately","ApplicationID","ConfigItemType",`
-            "LastReconciledTime","PlatformAccountProperties"'
+        $csvHeader = '"rowid","AccountName","Address","UserName","Platform","ModificationDate","ModifiedBy","LastUsedDate","LastUsedBy","Safe","CreatedBy","CreationDate","CPMStatus","Folder","LastTask","CPMErrorDetails","CPMDisabled","LastFailDate","LastSuccessVerification","DateTimeNow","ResetImmediately","ApplicationID","ConfigItemType","LastReconciledTime","PlatformAccountProperties"'
         Set-Content -Path $OutputPath -Value $csvHeader -Encoding UTF8
     }
 
     # Continue looping until we've retrieved all accounts
     while ($moreAccounts) {
-        # FIXED: Check for overall script timeout
+        # Check for overall script timeout
         if ((Get-Date) -gt $scriptStart.AddHours($maxScriptDuration)) {
             LogError "Script exceeded maximum runtime of $maxScriptDuration hours at offset $offset"
             throw "Script timeout - may indicate pagination loop issue"
@@ -568,7 +565,7 @@ function Get-AllAccountsBulk-Streaming {
             # Make API call with authentication header
             $response = Invoke-PVWARestMethod -Uri $uri -Headers @{'Authorization' = $script:AuthTrimmed } -TimeoutSec $ConnectionTimeoutSeconds
 
-            # FIXED: Validate we received a response before proceeding
+            # Validate we received a response before proceeding
             if ([string]::IsNullOrWhiteSpace($response)) {
                 LogError "Received null or empty response for accounts at offset $offset"
                 throw "Failed to retrieve accounts - API returned no data at offset $offset"
@@ -584,7 +581,7 @@ function Get-AllAccountsBulk-Streaming {
 
             # Check if we received account data in this batch
             if ($accountsData.value -and $accountsData.value.Count -gt 0) {
-                # FIXED: Detect duplicate accounts (pagination issue detection)
+                # Detect duplicate accounts (pagination issue detection)
                 $duplicatesFound = $false
                 foreach ($account in $accountsData.value) {
                     if ($seenIds.ContainsKey($account.id)) {
@@ -622,7 +619,7 @@ function Get-AllAccountsBulk-Streaming {
                     Write-Progress -Activity "Retrieving Accounts" -Status "$totalAccounts accounts processed so far" -PercentComplete -1
                 }
 
-                # FIXED: Perform garbage collection every 50k accounts AND at the end
+                # Perform garbage collection every 50k accounts AND at the end
                 if ($totalAccounts % 50000 -eq 0) {
                     LogOutput "Processed $totalAccounts accounts, performing garbage collection..."
                     [System.GC]::Collect()
@@ -640,12 +637,12 @@ function Get-AllAccountsBulk-Streaming {
             }
         } catch {
             LogError "Failed to retrieve accounts at offset $offset : $($_.Exception.Message)"
-            # FIXED: Don't try to continue after failure - could cause data loss
+            # Don't try to continue after failure - could cause data loss
             throw "Account retrieval failed - stopping to prevent incomplete report"
         }
     }
 
-    # FIXED: Final garbage collection after streaming completes
+    # Final garbage collection after streaming completes
     LogOutput "Performing final garbage collection..."
     [System.GC]::Collect()
     [System.GC]::WaitForPendingFinalizers()
@@ -746,7 +743,7 @@ function Process-AccountBatch-ToFile {
             $Account | Add-Member -NotePropertyName ApplicationID                -NotePropertyValue $Account.platformAccountProperties.ApplicationID -Force
             $Account | Add-Member -NotePropertyName ConfigItemType               -NotePropertyValue $Account.platformAccountProperties.ConfigItemType -Force
 
-            # FIXED: Use proper CSV escaping via PowerShell objects instead of manual formatting
+            # Use proper CSV escaping via PowerShell objects instead of manual formatting
             # This properly handles special characters like commas, quotes, and newlines
             $csvObject = [PSCustomObject]@{
                 rowid                      = $Account.id
@@ -791,7 +788,7 @@ function Process-AccountBatch-ToFile {
 # @FUNCTION@ ========================================================================================================
 # Name..........: Process-UsersReport
 # Description...: Generate comprehensive users report and export to CSV
-#                 FIXED: Now creates TWO separate CSV files instead of overwriting:
+#                 Now creates TWO separate CSV files instead of overwriting:
 #                 1. Users with group memberships (semicolon-separated)
 #                 2. User details with permissions and status
 # Parameters....: n/a (uses script-level configuration)
@@ -804,7 +801,7 @@ function Process-UsersReport {
     try {
         LogOutput "Starting users report generation..."
 
-        # Define output file names - FIXED: Two separate files
+        # Define output file names - Two separate files
         $TargetFileDetails = "Data_UserList_Details.csv"
         $TargetFileGroups = "Data_UserList_GroupMemberships.csv"
 
@@ -812,7 +809,7 @@ function Process-UsersReport {
         $GetUsersResponse = Get-Users
 
         if ($GetUsersResponse -and $GetUsersResponse.Users) {
-            # FIXED: First export - Users with their group memberships (separate file)
+            # First export - Users with their group memberships (separate file)
             # GroupMembership column contains semicolon-separated list of all groups
             $GetUsersResponse.Users | Select-Object -Property id, username, 
                 @{Name = "GroupMembership"; Expression = { ($_.groupsMembership.groupName -join ';') }},
@@ -827,7 +824,7 @@ function Process-UsersReport {
                 $User.vaultAuthorization = [String]$User.vaultAuthorization
             }
 
-            # FIXED: Second export - Detailed user information (separate file, doesn't overwrite)
+            # Second export - Detailed user information (separate file, doesn't overwrite)
             # Includes: username, ID, authentication source, user type, permissions, suspended status
             $GetUsersResponse.Users | Select-Object -Property username, id, source, userType, vaultAuthorization, suspended |
                 Export-Csv -Path "$ConfDirLogs\$TargetFileDetails" -NoTypeInformation -UseCulture -Force
@@ -1004,7 +1001,7 @@ try {
 }
 
 # ===== REPORT GENERATION =====
-# FIXED: Standardized error handling - all reports use same pattern
+# Standardized error handling - all reports use same pattern
 # Generate requested reports based on command-line switches
 # Each report runs independently - failures are logged but don't stop other reports
 
