@@ -14,11 +14,11 @@
 # .\Compare-ADCyberArk.ps1 -ADGroupName "CyberArk_EMEA_Users" `
 #                           -CyberArkURL "https://pvwa.company.com" `
 #                           -Region "EMEA" `
-#                           -LogPath "D:\Logs\CyberArk\comparison.log"
+#                           -LogPath "D:\Logs\comparison.log"
 
 param(
     [Parameter(Mandatory=$true)]
-    [string]$ConfigModule,
+    [string]$,
     
     [Parameter(Mandatory=$true)]
     [string]$CredentialFile,
@@ -74,11 +74,11 @@ try {
     Write-Output-Safe "================================================================================"
     
     # Import configuration module
-    Write-Output-Safe "Importing configuration from: $ConfigModule"
-    if (-not (Test-Path $ConfigModule)) {
-        throw "Configuration module not found: $ConfigModule"
+    Write-Output-Safe "Importing configuration from: $Configuration"
+    if (-not (Test-Path $Configuration)) {
+        throw "Configuration module not found: $Configuration"
     }
-    Import-Module $ConfigModule -Force -ErrorAction Stop 2>$null
+    Import-Module $Configuration -Force -ErrorAction Stop 2>$null
     
     # Validate configuration variables
     if (-not $regions) {
