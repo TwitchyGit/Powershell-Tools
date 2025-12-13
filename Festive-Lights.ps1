@@ -364,28 +364,32 @@ function Draw-TopStar {
 # Presents (minimum 4) with ribbons and bows
 ##################################################
 function Draw-Presents {
-    $baseY = $treeBaseY + $trunkHeight - 5
-    $startX = $treeCenterX - 210
+    $baseY = [double]($treeBaseY + $trunkHeight - 5)
+    $startX = [double]($treeCenterX - 210)
 
     $presentSpecs = @(
-        @{ Fill = [System.Windows.Media.Colors]::Red;      X = $startX + 0;   W = 90; H = 65 },
-        @{ Fill = [System.Windows.Media.Colors]::Blue;     X = $startX + 105; W = 85; H = 58 },
-        @{ Fill = [System.Windows.Media.Colors]::Green;    X = $startX + 205; W = 95; H = 70 },
-        @{ Fill = [System.Windows.Media.Colors]::Magenta;  X = $startX + 320; W = 80; H = 60 }
+        @{ Fill = [System.Windows.Media.Colors]::Red;     X = ($startX + 0);   W = 90; H = 65 },
+        @{ Fill = [System.Windows.Media.Colors]::Blue;    X = ($startX + 105); W = 85; H = 58 },
+        @{ Fill = [System.Windows.Media.Colors]::Green;   X = ($startX + 205); W = 95; H = 70 },
+        @{ Fill = [System.Windows.Media.Colors]::Magenta; X = ($startX + 320); W = 80; H = 60 }
     )
 
     foreach ($p in $presentSpecs) {
+        $px = [double]$p["X"]
+        $pw = [double]$p["W"]
+        $ph = [double]$p["H"]
+        $pf = $p["Fill"]
+
         $box = New-Object System.Windows.Shapes.Rectangle
-        $box.Width = $p.W
-        $box.Height = $p.H
+        $box.Width = $pw
+        $box.Height = $ph
         $box.RadiusX = 6
         $box.RadiusY = 6
-        $box.Fill = New-SolidBrush $p.Fill
+        $box.Fill = New-SolidBrush $pf
         $box.Stroke = New-SolidBrush ([System.Windows.Media.Colors]::Black)
         $box.StrokeThickness = 1.0
-
-        [System.Windows.Controls.Canvas]::SetLeft($box, $p.X) | Out-Null
-        [System.Windows.Controls.Canvas]::SetTop($box, $baseY - $p.H) | Out-Null
+        [System.Windows.Controls.Canvas]::SetLeft($box, $px) | Out-Null
+        [System.Windows.Controls.Canvas]::SetTop($box, ($baseY - $ph)) | Out-Null
         $canvas.Children.Add($box) | Out-Null
 
         $rcol = [System.Windows.Media.Colors]::Gold
@@ -393,46 +397,47 @@ function Draw-Presents {
 
         $ribV = New-Object System.Windows.Shapes.Rectangle
         $ribV.Width = 10
-        $ribV.Height = $p.H
+        $ribV.Height = $ph
         $ribV.Fill = New-SolidBrush $rcol
-        [System.Windows.Controls.Canvas]::SetLeft($ribV, $p.X + ($p.W/2) - 5) | Out-Null
-        [System.Windows.Controls.Canvas]::SetTop($ribV, $baseY - $p.H) | Out-Null
+        [System.Windows.Controls.Canvas]::SetLeft($ribV, ($px + ($pw / 2.0) - 5.0)) | Out-Null
+        [System.Windows.Controls.Canvas]::SetTop($ribV, ($baseY - $ph)) | Out-Null
         $canvas.Children.Add($ribV) | Out-Null
 
         $ribH = New-Object System.Windows.Shapes.Rectangle
-        $ribH.Width = $p.W
+        $ribH.Width = $pw
         $ribH.Height = 10
         $ribH.Fill = New-SolidBrush $rcol
-        [System.Windows.Controls.Canvas]::SetLeft($ribH, $p.X) | Out-Null
-        [System.Windows.Controls.Canvas]::SetTop($ribH, $baseY - ($p.H/2) - 5) | Out-Null
+        [System.Windows.Controls.Canvas]::SetLeft($ribH, $px) | Out-Null
+        [System.Windows.Controls.Canvas]::SetTop($ribH, ($baseY - ($ph / 2.0) - 5.0)) | Out-Null
         $canvas.Children.Add($ribH) | Out-Null
+
+        $bx = [double]($px + ($pw / 2.0))
+        $by = [double](($baseY - $ph) - 4.0)
 
         $bowLeft = New-Object System.Windows.Shapes.Polygon
         $bowLeft.Fill = New-SolidBrush $rcol
         $bowLeftPts = New-Object System.Windows.Media.PointCollection
-        $bx = $p.X + ($p.W/2)
-        $by = ($baseY - $p.H) - 4
-        $bowLeftPts.Add((New-Object System.Windows.Point($bx,$by))) | Out-Null
-        $bowLeftPts.Add((New-Object System.Windows.Point($bx-18,$by-12))) | Out-Null
-        $bowLeftPts.Add((New-Object System.Windows.Point($bx-6,$by-2))) | Out-Null
+        $bowLeftPts.Add((New-Object System.Windows.Point($bx, $by))) | Out-Null
+        $bowLeftPts.Add((New-Object System.Windows.Point(($bx - 18.0), ($by - 12.0)))) | Out-Null
+        $bowLeftPts.Add((New-Object System.Windows.Point(($bx - 6.0), ($by - 2.0)))) | Out-Null
         $bowLeft.Points = $bowLeftPts
         $canvas.Children.Add($bowLeft) | Out-Null
 
         $bowRight = New-Object System.Windows.Shapes.Polygon
         $bowRight.Fill = New-SolidBrush $rcol
         $bowRightPts = New-Object System.Windows.Media.PointCollection
-        $bowRightPts.Add((New-Object System.Windows.Point($bx,$by))) | Out-Null
-        $bowRightPts.Add((New-Object System.Windows.Point($bx+18,$by-12))) | Out-Null
-        $bowRightPts.Add((New-Object System.Windows.Point($bx+6,$by-2))) | Out-Null
+        $bowRightPts.Add((New-Object System.Windows.Point($bx, $by))) | Out-Null
+        $bowRightPts.Add((New-Object System.Windows.Point(($bx + 18.0), ($by - 12.0)))) | Out-Null
+        $bowRightPts.Add((New-Object System.Windows.Point(($bx + 6.0), ($by - 2.0)))) | Out-Null
         $bowRight.Points = $bowRightPts
         $canvas.Children.Add($bowRight) | Out-Null
 
         $knot = New-Object System.Windows.Shapes.Ellipse
         $knot.Width = 8
         $knot.Height = 8
-        $knot.Fill = New-SolidBrush $rcol
-        [System.Windows.Controls.Canvas]::SetLeft($knot, $bx - 4) | Out-Null
-        [System.Windows.Controls.Canvas]::SetTop($knot, $by - 4) | Out-Null
+        $knot.Fill = New-Object System.Windows.Media.SolidColorBrush($rcol)
+        [System.Windows.Controls.Canvas]::SetLeft($knot, ($bx - 4.0)) | Out-Null
+        [System.Windows.Controls.Canvas]::SetTop($knot, ($by - 4.0)) | Out-Null
         $canvas.Children.Add($knot) | Out-Null
     }
 }
@@ -500,5 +505,19 @@ $timer.Interval = [TimeSpan]::FromMilliseconds(33)
 $timer.Add_Tick({ Update-Twinkles })
 $timer.Start()
 
-$app = New-Object System.Windows.Application
-[void]$app.Run($window)
+# Show the window and start the application's message loop
+$app = [System.Windows.Application]::Current
+if (-not $app) {
+    $app = New-Object System.Windows.Application
+}
+
+# If the app is already running (ISE etc) do not call Run again
+if ($app.Dispatcher -and $app.Dispatcher.HasShutdownStarted) {
+    $app = New-Object System.Windows.Application
+}
+
+if ($app -and ($app.Windows.Count -eq 0)) {
+    [void]$app.Run($window)
+} else {
+    [void]$window.Show()
+}
