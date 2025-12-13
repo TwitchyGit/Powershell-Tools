@@ -32,10 +32,10 @@
   Exit codes: 0=none disabled, 1=disabled present, 2=error
 #>
 
-<# Scan multiple domains and groups from ConfigModule.psm1
+<# Scan multiple domains and groups from Configuration.psm1
 Requires: ActiveDirectory module, PS 5.0
 
-ConfigModule.psm1 must expose:
+Configuration.psm1 must expose:
   $ConfADDomains = @('corp.local','emea.local',...)
   $ConfADGroups  = @('Finance Team','CN=HR,OU=Groups,DC=corp,DC=local',...)
 
@@ -57,7 +57,7 @@ $ErrorActionPreference = 'Stop'
 
 try {
   Import-Module ActiveDirectory -Force -ErrorAction Stop
-  Import-Module -Name ConfigModule.psm1 -ErrorAction Stop -Force
+  Import-Module -Name Configuration.psm1 -ErrorAction Stop -Force
 } catch {
   Write-Output "ERROR: config module load failed. $($_.Exception.Message)"
   exit 2
