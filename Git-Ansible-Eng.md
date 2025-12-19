@@ -2,48 +2,87 @@
 
 ## Overview
 
-This project automates infrastructure deployment using Ansible orchestration, Git version control, and CyberArk Marketplace templates for secrets management. This guide will help you understand the architecture, make changes, and test deployments effectively.
+This project automates the deployment of CyberArk Privileged Access Security (PAS) components using Ansible orchestration, Git version control, and official CyberArk Marketplace templates. The deployment includes CPM (Central Policy Manager), PSM (Privileged Session Manager), and PVWA (Password Vault Web Access). This guide will help you understand the architecture, make changes, and test deployments effectively.
 
 ## Architecture
 
 ### Components
 
-**Ansible** - Infrastructure automation engine that executes playbooks to configure and deploy resources
+**Ansible** - Infrastructure automation engine that executes playbooks to configure and deploy CyberArk PAS components
 
 **Git** - Version control system tracking all configuration changes and playbook versions
 
-**CyberArk Templates** - Pre-built Marketplace templates for secure credential retrieval and secrets management
+**CyberArk PAS Orchestrator** - Coordinates the deployment and configuration of CyberArk PAS components, managing dependencies and deployment sequencing
 
-**Target Environments** - Infrastructure being deployed (servers, cloud resources, applications)
+**CyberArk Marketplace Templates** - Official pre-built Ansible roles for CPM, PSM, and PVWA deployment and configuration
+
+**PAS Components Being Deployed:**
+- **CPM (Central Policy Manager)** - Automates password management and rotation for privileged accounts
+- **PSM (Privileged Session Manager)** - Provides secure isolation and monitoring for privileged sessions
+- **PVWA (Password Vault Web Access)** - Web-based interface for accessing the CyberArk Vault
+
+**Target Environments** - Servers where PAS components will be installed (Windows/Linux hosts)
 
 ### Workflow
 
-1. Engineers commit changes to Git repository
-2. Ansible pulls latest playbooks and templates from Git
-3. CyberArk integration retrieves credentials securely during runtime
-4. Ansible executes playbooks against target infrastructure
-5. Deployment results are logged and reported
+1. Engineers commit changes to Git repository (configuration updates, version changes)
+2. Ansible pulls latest playbooks and CyberArk templates from Git
+3. PAS Orchestrator coordinates the deployment sequence:
+   - Validates prerequisites and connectivity
+   - Determines component deployment order (typically PVWA → CPM → PSM)
+   - Manages inter-component dependencies
+4. Ansible executes tasks for each PAS component using marketplace templates
+5. Components are configured and integrated with the CyberArk Vault
+6. Deployment results are validated, logged, and reported
+
+### PAS Orchestrator Role
+
+The PAS Orchestrator is the coordination layer that ensures CyberArk components are deployed in the correct order with proper configuration. It handles:
+
+**Deployment Sequencing** - Ensures PVWA is deployed before CPM and PSM, as they depend on PVWA for vault communication
+
+**Dependency Management** - Validates that prerequisite components are healthy before proceeding with dependent components
+
+**Configuration Consistency** - Ensures all components have compatible configurations and can communicate with each other and the Vault
+
+**Health Checks** - Performs validation checks between component deployments to verify successful installation and connectivity
+
+**Rollback Coordination** - Can orchestrate rollback procedures if a component deployment fails
+
+**State Management** - Tracks deployment state across multiple components to support partial deployments and recovery
 
 ## Repository Structure
 
 ```
 project-root/
 ├── defaults/               # Default variables (lowest precedence)
-│   └── main.yml           # Default variable definitions
+│   └── main.yml           # Default variable definitions for PAS components
 ├── files/                  # Static files to be copied to targets
-│   └── configs/           # Configuration files, scripts, binaries
+│   ├── licenses/          # CyberArk license files
+│   ├── certificates/      # SSL/TLS certificates
+│   └── configs/           # Component-specific configuration files
 ├── handlers/               # Handler definitions for service restarts, etc.
-│   └── main.yml           # Handler tasks triggered by notify
+│   └── main.yml           # Handlers for CPM, PSM, PVWA services
 ├── meta/                   # Role metadata and dependencies
-│   └── main.yml           # Role information, dependencies, platforms
+│   └── main.yml           # PAS component dependencies and order
 ├── tasks/                  # Main task definitions
-│   └── main.yml           # Primary tasks executed by the role
+│   ├── main.yml           # Primary orchestration tasks
+│   ├── pvwa.yml           # PVWA deployment tasks
+│   ├── cpm.yml            # CPM deployment tasks
+│   └── psm.yml            # PSM deployment tasks
 ├── vars/                   # Role variables (higher precedence than defaults)
-│   └── main.yml           # Variable definitions
+│   ├── main.yml           # Common PAS variables
+│   ├── vault_config.yml   # Vault connection settings
+│   └── component_versions.yml  # Component version definitions
 ├── inventory/              # Environment inventories (dev, staging, prod)
-├── cyberark/               # CyberArk integration configs
-│   └── queries/            # Credential query definitions
+│   ├── dev/
+│   ├── staging/
+│   └── prod/
 ├── playbooks/              # Main playbooks that call roles/tasks
+│   ├── deploy_pas.yml     # Full PAS stack deployment
+│   ├── deploy_pvwa.yml    # PVWA only
+│   ├── deploy_cpm.yml     # CPM only
+│   └── deploy_psm.yml     # PSM only
 └── README.md               # Project documentation
 ```
 
@@ -51,12 +90,15 @@ project-root/
 
 Before working with this project, ensure you have:
 
-- Ansible installed (check version with `ansible --version`)
+- Ansible installed (check version with `ansible --version`) - version compatible with CyberArk templates
 - Git configured with repository access
-- SSH access to target environments
-- CyberArk credentials for your account
-- Python 3.x with required modules
-- Access to the CyberArk Marketplace templates documentation
+- SSH/WinRM access to target servers depending on OS
+- Access to CyberArk Vault with appropriate permissions
+- CyberArk PAS installation media and licenses
+- SSL/TLS certificates for PVWA
+- Network connectivity between components and the Vault
+- Administrator credentials for target servers
+- Understanding of CyberArk PAS architecture and component roles
 
 ## Engineering the Deployment
 
@@ -66,70 +108,97 @@ Before working with this project, ensure you have:
 
 1. Check out the latest version: `git pull origin main`
 2. Create a feature branch: `git checkout -b feature/your-change`
-3. Edit tasks in `tasks/main.yml` or create additional task files
+3. Edit tasks in `tasks/main.yml` or component-specific task files (`pvwa.yml`, `cpm.yml`, `psm.yml`)
 4. Update variables in `vars/main.yml` (high precedence) or `defaults/main.yml` (low precedence)
-5. Test locally (see Testing section)
-6. Commit and push: `git add . && git commit -m "Description" && git push`
+5. If changing component versions, update `vars/component_versions.yml`
+6. Test locally (see Testing section)
+7. Commit and push: `git add . && git commit -m "Description" && git push`
 
 **Understanding the Directory Structure**
 
-**defaults/** - Place variables here that users should be able to override easily. These have the lowest precedence and are meant to be changed.
+**defaults/** - Place variables here that users should be able to override easily (server hostnames, ports, installation paths). These have the lowest precedence and are meant to be changed per environment.
 
-**files/** - Store static files here (scripts, binaries, configuration files) that will be copied to target hosts using the `copy` module.
+**files/** - Store static files here:
+- CyberArk license files for each component
+- SSL/TLS certificates for PVWA
+- Pre-configured XML or INI files for component configuration
+- Installation media (if not using package managers)
 
-**handlers/** - Define handlers that respond to `notify` directives, typically for restarting services or reloading configurations after changes.
+**handlers/** - Define handlers for PAS services:
+- Restarting CyberArk services (PVWA, CPM, PSM)
+- Reloading configurations after changes
+- Triggering health checks after service restarts
 
-**meta/** - Contains role metadata including dependencies on other roles, supported platforms, and role information.
+**meta/** - Contains role metadata including:
+- Dependencies between PAS components (PVWA before CPM/PSM)
+- Supported platforms (Windows Server versions, Linux distributions)
+- Minimum Ansible version required
 
-**tasks/** - The core of your automation. Main tasks go in `main.yml`, but you can include additional task files for organization.
+**tasks/** - The core automation logic:
+- `main.yml` - Orchestration and component deployment sequence
+- `pvwa.yml` - PVWA installation and configuration
+- `cpm.yml` - CPM installation and configuration
+- `psm.yml` - PSM installation and configuration
+- Can include pre-checks, post-validation, and rollback tasks
 
-**vars/** - Variables here have higher precedence than defaults and are used for values that shouldn't typically be overridden.
+**vars/** - Variables here have higher precedence:
+- Vault connection details
+- Component versions and build numbers
+- Internal configuration that shouldn't be overridden
+- Hardened security settings
 
-**CyberArk Integration**
+**CyberArk PAS Component Configuration**
 
-CyberArk credentials are retrieved using the marketplace template lookup plugins. To add a new credential retrieval:
+When modifying PAS component configurations:
 
-1. Define the query in `cyberark/queries/`
-2. Reference in tasks using the lookup plugin in `tasks/main.yml`:
-   ```yaml
-   - name: Retrieve credential
-     set_fact:
-       db_password: "{{ lookup('cyberark', 'query_name') }}"
-   ```
-3. Ensure the CyberArk safe and account exist
-4. Test credential retrieval before full deployment
+1. **PVWA Changes** - Edit `tasks/pvwa.yml`:
+   - Web server configuration (IIS/Apache)
+   - SSL/TLS certificate deployment
+   - Vault connection parameters
+   - User authentication settings
 
-**Working with Handlers**
+2. **CPM Changes** - Edit `tasks/cpm.yml`:
+   - Platform configurations for password management
+   - Password change schedules and policies
+   - Target system connections
+   - Plugin installations
 
-Handlers are triggered by `notify` statements in tasks. Common pattern in `tasks/main.yml`:
+3. **PSM Changes** - Edit `tasks/psm.yml`:
+   - Connection component configurations
+   - Recording settings
+   - Allowed target systems
+   - Session isolation parameters
 
+**Example: Updating PVWA Configuration**
+
+In `tasks/pvwa.yml`:
 ```yaml
-- name: Update nginx configuration
-  copy:
-    src: nginx.conf
-    dest: /etc/nginx/nginx.conf
-  notify: restart nginx
+- name: Configure PVWA vault connection
+  win_template:
+    src: vault.ini.j2
+    dest: 'C:\CyberArk\Password Vault Web Access\vault.ini'
+  notify: restart pvwa service
+
+- name: Deploy SSL certificate
+  win_copy:
+    src: "{{ pvwa_certificate }}"
+    dest: 'C:\CyberArk\Certificates\'
+  notify: configure iis ssl
 ```
 
-Define the handler in `handlers/main.yml`:
-
+Define handler in `handlers/main.yml`:
 ```yaml
-- name: restart nginx
-  service:
-    name: nginx
+- name: restart pvwa service
+  win_service:
+    name: CyberArk Password Vault Web Access
     state: restarted
-```
 
-**Managing Files**
-
-Place static files in the `files/` directory and reference them without paths:
-
-```yaml
-- name: Copy application script
-  copy:
-    src: deploy_app.sh
-    dest: /opt/scripts/deploy_app.sh
-    mode: '0755'
+- name: configure iis ssl
+  win_iis_webbinding:
+    name: PasswordVault
+    protocol: https
+    port: 443
+    certificate_hash: "{{ cert_thumbprint }}"
 ```
 
 ### Best Practices
@@ -137,14 +206,17 @@ Place static files in the `files/` directory and reference them without paths:
 - Always work in feature branches, never commit directly to main
 - Use descriptive commit messages following conventional commits format
 - Keep tasks idempotent (running multiple times produces same result)
-- Put user-configurable variables in `defaults/`, internal variables in `vars/`
-- Use handlers for service restarts rather than direct restart tasks
-- Store static files in `files/`, use the `copy` module to deploy them
-- Define role dependencies in `meta/main.yml` for proper execution order
-- Tag tasks for selective execution: `tags: ['config', 'deploy']`
-- Implement check mode compatibility: `check_mode: yes`
-- Document all custom modules or complex logic
-- Use `include_tasks` or `import_tasks` to break up large `tasks/main.yml` files
+- Put environment-specific variables in `defaults/`, internal PAS configs in `vars/`
+- Use handlers for CyberArk service restarts rather than direct restart tasks
+- Store licenses and certificates in `files/`, never commit them to Git unencrypted
+- Define component dependencies clearly in `meta/main.yml` for proper deployment order
+- Tag tasks by component for selective execution: `tags: ['pvwa', 'cpm', 'psm']`
+- Implement check mode compatibility where possible: `check_mode: yes`
+- Document any CyberArk version-specific requirements or compatibility notes
+- Use `include_tasks` or `import_tasks` to break up large component task files
+- Always validate Vault connectivity before component deployment
+- Test component health checks after each deployment phase
+- Follow CyberArk's recommended deployment sequence: PVWA → CPM → PSM
 
 ## Testing Strategy
 
@@ -167,29 +239,38 @@ ansible-playbook tasks/main.yml --syntax-check
 Execute without making changes:
 
 ```bash
-ansible-playbook playbooks/deploy.yml --check --diff
+ansible-playbook playbooks/deploy_pas.yml --check --diff
 ```
 
-The `--diff` flag shows what would change.
+The `--diff` flag shows what would change. Note that some CyberArk installation tasks may not support check mode.
 
 ### 3. Development Environment Testing
 
 Always test in dev first:
 
 ```bash
-ansible-playbook playbooks/deploy.yml -i inventory/dev --limit dev-servers
+# Full PAS stack
+ansible-playbook playbooks/deploy_pas.yml -i inventory/dev
+
+# Individual components
+ansible-playbook playbooks/deploy_pvwa.yml -i inventory/dev
+ansible-playbook playbooks/deploy_cpm.yml -i inventory/dev
+ansible-playbook playbooks/deploy_psm.yml -i inventory/dev
 ```
 
-### 4. Targeted Testing
+### 4. Component-Specific Testing
 
-Test specific hosts or groups:
+Test individual PAS components:
 
 ```bash
-# Single host
-ansible-playbook playbooks/deploy.yml --limit hostname.example.com
+# Test only PVWA deployment
+ansible-playbook playbooks/deploy_pas.yml --tags "pvwa"
 
-# Specific group
-ansible-playbook playbooks/deploy.yml --limit webservers
+# Test only CPM deployment
+ansible-playbook playbooks/deploy_pas.yml --tags "cpm"
+
+# Test only PSM deployment
+ansible-playbook playbooks/deploy_pas.yml --tags "psm"
 ```
 
 ### 5. Tag-Based Testing
@@ -197,13 +278,18 @@ ansible-playbook playbooks/deploy.yml --limit webservers
 Run specific sections:
 
 ```bash
-ansible-playbook playbooks/deploy.yml --tags "config,validation"
+# Deploy and configure only
+ansible-playbook playbooks/deploy_pas.yml --tags "deploy,configure"
+
+# Run validation checks only
+ansible-playbook playbooks/deploy_pas.yml --tags "validation"
 ```
 
 Skip certain sections:
 
 ```bash
-ansible-playbook playbooks/deploy.yml --skip-tags "restart"
+# Skip service restarts during testing
+ansible-playbook playbooks/deploy_pas.yml --skip-tags "restart"
 ```
 
 ### 6. Verbose Output
@@ -211,28 +297,41 @@ ansible-playbook playbooks/deploy.yml --skip-tags "restart"
 Debug issues with increased verbosity:
 
 ```bash
-ansible-playbook playbooks/deploy.yml -vvv
+ansible-playbook playbooks/deploy_pas.yml -vvv
 ```
 
-### 7. CyberArk Credential Testing
+### 7. PAS Component Health Validation
 
-Test credential retrieval independently:
+After deployment, validate each component:
 
 ```bash
-ansible-playbook tests/test_cyberark_credentials.yml
+# Run health check playbook
+ansible-playbook playbooks/validate_pas.yml -i inventory/dev
+
+# Check individual component status
+ansible pvwa_servers -m win_service -a "name='CyberArk Password Vault Web Access'" -i inventory/dev
+ansible cpm_servers -m win_service -a "name='CyberArk Central Policy Manager Scanner'" -i inventory/dev
+ansible psm_servers -m win_service -a "name='Cyber-Ark Privileged Session Manager'" -i inventory/dev
 ```
 
-Create a test playbook that only retrieves and validates credentials without making changes.
+**Key Health Checks:**
+- PVWA web interface accessibility (https://pvwa-server/PasswordVault)
+- CPM service status and vault connectivity
+- PSM service status and connection component availability
+- Component registration in the Vault
+- Log files for errors (`C:\CyberArk\...\Logs\`)
 
 ### 8. Integration Testing
 
 After dev testing succeeds:
 
 1. Deploy to staging environment
-2. Run smoke tests to verify basic functionality
-3. Execute full integration test suite
-4. Validate CyberArk credential rotation works
-5. Check logs for errors or warnings
+2. Validate PVWA login and vault access
+3. Test CPM password management on test accounts
+4. Test PSM connections through connection components
+5. Verify component-to-vault communication
+6. Check integration between components (CPM/PSM accessing via PVWA)
+7. Review all component logs for errors or warnings
 
 ## Common Commands
 
@@ -240,49 +339,101 @@ After dev testing succeeds:
 # List all hosts in inventory
 ansible-inventory --list -i inventory/dev
 
-# Test connectivity
-ansible all -m ping -i inventory/dev
+# Test connectivity to Windows hosts
+ansible all -m win_ping -i inventory/dev
 
-# Run ad-hoc command
-ansible webservers -m shell -a "uptime" -i inventory/prod
+# Test connectivity to Linux hosts (if PSM on Linux)
+ansible psm_servers -m ping -i inventory/dev
+
+# Check CyberArk service status
+ansible pvwa_servers -m win_service -a "name='CyberArk Password Vault Web Access'" -i inventory/prod
 
 # View available tags
-ansible-playbook playbooks/deploy.yml --list-tags
+ansible-playbook playbooks/deploy_pas.yml --list-tags
 
 # View tasks without executing
-ansible-playbook playbooks/deploy.yml --list-tasks
+ansible-playbook playbooks/deploy_pas.yml --list-tasks
 
 # Start at specific task
-ansible-playbook playbooks/deploy.yml --start-at-task="Configure database"
+ansible-playbook playbooks/deploy_pas.yml --start-at-task="Configure PVWA vault connection"
+
+# Run only against specific component servers
+ansible-playbook playbooks/deploy_pas.yml --limit pvwa_servers
+
+# Gather facts about target servers
+ansible all -m setup -i inventory/dev > server_facts.json
 ```
 
 ## Troubleshooting
 
-**CyberArk Authentication Fails**
+**Vault Connectivity Issues**
 
-- Verify your CyberArk credentials are current
-- Check network connectivity to CyberArk vault
-- Validate query syntax in query definitions
-- Ensure safe permissions are correctly configured
+- Verify network connectivity from component servers to Vault: `Test-NetConnection -ComputerName vault-server -Port 1858`
+- Check vault.ini configuration on PVWA/CPM/PSM servers
+- Validate Vault user credentials have appropriate permissions
+- Review firewall rules between components and Vault
+- Check CyberArk Vault service status
+
+**Component Installation Failures**
+
+- Verify installation media is accessible and correct version
+- Check license file validity and path in `files/licenses/`
+- Ensure target server meets minimum requirements (OS version, RAM, disk space)
+- Review installation logs in `C:\CyberArk\[Component]\Logs\`
+- Verify no conflicting CyberArk components already installed
+
+**PVWA Issues**
+
+- Check IIS application pool status and identity
+- Verify SSL certificate is valid and trusted
+- Test PVWA URL accessibility: `https://pvwa-server/PasswordVault`
+- Review PVWA logs: `C:\CyberArk\Password Vault Web Access\Logs\`
+- Confirm vault.ini points to correct Vault server
+
+**CPM Issues**
+
+- Verify CPM user exists in Vault and has proper permissions
+- Check platform configurations are loaded in Vault
+- Review CPM Scanner service logs
+- Ensure target systems are reachable from CPM server
+- Validate plugins are installed for target system types
+
+**PSM Issues**
+
+- Verify PSM user exists in Vault with proper permissions
+- Check connection components are configured correctly
+- Test RDP/SSH access from PSM to target systems
+- Review PSM service logs and recording status
+- Ensure session isolation is working (PVWA routing through PSM)
 
 **Playbook Execution Hangs**
 
-- Check SSH connectivity: `ansible target -m ping`
-- Verify sudo/privilege escalation settings
-- Review firewall rules between control node and targets
+- Check WinRM connectivity for Windows: `ansible target -m win_ping`
+- Check SSH connectivity for Linux: `ansible target -m ping`
+- Verify credentials in inventory have proper privileges
+- Review firewall rules between Ansible control node and targets
 - Check for prompts that need `--extra-vars` input
 
 **Variable Not Found Errors**
 
-- Confirm variable is defined in appropriate scope
-- Check precedence order: extra-vars > host_vars > group_vars > defaults
-- Verify inventory group membership for group_vars
+- Confirm variable is defined in appropriate scope (defaults vs vars)
+- Check precedence order: extra-vars > vars > defaults
+- Verify inventory group membership for group-specific variables
+- Review `vars/component_versions.yml` for version-specific variables
 
 **Idempotency Issues**
 
 - Review task logic for conditional statements
+- Some CyberArk installation tasks may not be fully idempotent
 - Use appropriate modules (avoid shell/command where possible)
 - Test with `--check` mode to identify non-idempotent tasks
+
+**Deployment Order Problems**
+
+- Ensure PVWA is deployed before CPM and PSM
+- Check `meta/main.yml` for correct dependency definitions
+- Verify the orchestrator is respecting component dependencies
+- Review task tags to ensure components deploy in sequence
 
 ## Deployment Workflow
 
@@ -292,46 +443,76 @@ ansible-playbook playbooks/deploy.yml --start-at-task="Configure database"
    - Review changes in feature branch
    - Run syntax validation
    - Execute check mode against dev
+   - Verify CyberArk installation media and licenses are available
+   - Confirm SSL certificates are valid for PVWA
    - Get peer review/approval
 
 2. **Development Deployment**
-   - Deploy to dev environment
-   - Run validation tests
-   - Verify CyberArk integration
+   - Deploy PVWA first: `ansible-playbook playbooks/deploy_pvwa.yml -i inventory/dev`
+   - Validate PVWA is accessible and connected to Vault
+   - Deploy CPM: `ansible-playbook playbooks/deploy_cpm.yml -i inventory/dev`
+   - Validate CPM service and vault connectivity
+   - Deploy PSM: `ansible-playbook playbooks/deploy_psm.yml -i inventory/dev`
+   - Validate PSM service and connection components
+   - Run comprehensive validation tests
+   - Test end-to-end flows (password retrieval via PVWA, session through PSM)
 
 3. **Staging Deployment**
    - Merge to staging branch
-   - Deploy to staging environment
-   - Execute full test suite
+   - Follow same component deployment order (PVWA → CPM → PSM)
+   - Execute full integration test suite
+   - Test password management workflows through CPM
+   - Test privileged session recording through PSM
    - Conduct user acceptance testing if applicable
+   - Verify all components are logging correctly
 
 4. **Production Deployment**
-   - Schedule maintenance window if needed
+   - Schedule maintenance window
    - Create production release tag
-   - Deploy to production with appropriate change control
-   - Monitor logs and metrics
-   - Validate all services operational
+   - Notify stakeholders of deployment window
+   - Deploy components in order with proper change control
+   - PVWA first, validate before proceeding
+   - CPM second, validate before proceeding
+   - PSM last, full validation
+   - Monitor component logs and services
+   - Validate all PAS functionality operational
+   - Test critical password management and session workflows
 
 5. **Post-Deployment**
    - Document any issues encountered
+   - Verify all components registered properly in Vault
    - Update runbooks if procedures changed
-   - Archive logs for audit purposes
+   - Archive deployment logs for audit purposes
+   - Schedule post-deployment review
+   - Monitor component health for 24-48 hours
 
 ## Getting Help
 
-- **Documentation**: Check the project README and role-specific docs
-- **CyberArk Templates**: Refer to Marketplace documentation for template specifics
+- **Documentation**: Check the project README and CyberArk Marketplace template documentation
+- **CyberArk Templates**: Refer to official CyberArk Ansible documentation at https://cyberark.github.io/
 - **Ansible Docs**: https://docs.ansible.com for module references
+- **CyberArk Support**: Access CyberArk support portal for PAS component issues
 - **Team Channel**: [Your team's communication channel]
 - **Runbooks**: [Location of operational runbooks]
+- **CyberArk Logs**: Always check component logs in `C:\CyberArk\[Component]\Logs\` for detailed error information
 
 ## Next Steps
 
-1. Clone the repository and review the existing playbooks
-2. Set up your development environment with required tools
-3. Run a test deployment against the dev environment
-4. Review recent commits to understand change patterns
-5. Shadow an experienced team member through a deployment
+1. Clone the repository and review the existing playbooks and task files
+2. Set up your development environment with Ansible and required access
+3. Review CyberArk PAS architecture documentation
+4. Familiarize yourself with PVWA, CPM, and PSM component roles
+5. Run a test deployment against the dev environment (PVWA → CPM → PSM)
+6. Shadow an experienced team member through a production deployment
+7. Review component logs to understand normal vs error states
+
+## Additional Resources
+
+- **CyberArk PAS Documentation**: Official product documentation for each component
+- **CyberArk Ansible Collection**: https://galaxy.ansible.com/cyberark - Official Ansible modules
+- **Installation Guides**: Component-specific installation and configuration guides
+- **Hardening Guides**: CyberArk security hardening best practices
+- **Architecture Diagrams**: Review PAS reference architecture for your environment
 
 ---
 
