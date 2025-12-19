@@ -28,15 +28,22 @@ This project automates infrastructure deployment using Ansible orchestration, Gi
 
 ```
 project-root/
-├── playbooks/              # Ansible playbooks for deployment
-├── roles/                  # Reusable Ansible roles
+├── defaults/               # Default variables (lowest precedence)
+│   └── main.yml           # Default variable definitions
+├── files/                  # Static files to be copied to targets
+│   └── configs/           # Configuration files, scripts, binaries
+├── handlers/               # Handler definitions for service restarts, etc.
+│   └── main.yml           # Handler tasks triggered by notify
+├── meta/                   # Role metadata and dependencies
+│   └── main.yml           # Role information, dependencies, platforms
+├── tasks/                  # Main task definitions
+│   └── main.yml           # Primary tasks executed by the role
+├── vars/                   # Role variables (higher precedence than defaults)
+│   └── main.yml           # Variable definitions
 ├── inventory/              # Environment inventories (dev, staging, prod)
-├── group_vars/             # Variables organized by groups
-├── host_vars/              # Host-specific variables
-├── templates/              # Jinja2 templates for configuration files
 ├── cyberark/               # CyberArk integration configs
 │   └── queries/            # Credential query definitions
-├── tests/                  # Test playbooks and scripts
+├── playbooks/              # Main playbooks that call roles/tasks
 └── README.md               # Project documentation
 ```
 
@@ -55,29 +62,35 @@ Before working with this project, ensure you have:
 
 ### Making Changes
 
-**Modify Existing Playbooks**
+**Modifying Tasks**
 
 1. Check out the latest version: `git pull origin main`
 2. Create a feature branch: `git checkout -b feature/your-change`
-3. Edit the relevant playbook in the `playbooks/` directory
-4. Update variable files if needed in `group_vars/` or `host_vars/`
+3. Edit tasks in `tasks/main.yml` or create additional task files
+4. Update variables in `vars/main.yml` (high precedence) or `defaults/main.yml` (low precedence)
 5. Test locally (see Testing section)
 6. Commit and push: `git add . && git commit -m "Description" && git push`
 
-**Adding New Roles**
+**Understanding the Directory Structure**
 
-1. Create role structure: `ansible-galaxy init roles/new-role`
-2. Implement tasks in `roles/new-role/tasks/main.yml`
-3. Define defaults in `roles/new-role/defaults/main.yml`
-4. Add role to playbook with appropriate variables
-5. Document the role in `roles/new-role/README.md`
+**defaults/** - Place variables here that users should be able to override easily. These have the lowest precedence and are meant to be changed.
+
+**files/** - Store static files here (scripts, binaries, configuration files) that will be copied to target hosts using the `copy` module.
+
+**handlers/** - Define handlers that respond to `notify` directives, typically for restarting services or reloading configurations after changes.
+
+**meta/** - Contains role metadata including dependencies on other roles, supported platforms, and role information.
+
+**tasks/** - The core of your automation. Main tasks go in `main.yml`, but you can include additional task files for organization.
+
+**vars/** - Variables here have higher precedence than defaults and are used for values that shouldn't typically be overridden.
 
 **CyberArk Integration**
 
 CyberArk credentials are retrieved using the marketplace template lookup plugins. To add a new credential retrieval:
 
 1. Define the query in `cyberark/queries/`
-2. Reference in playbook using the lookup plugin:
+2. Reference in tasks using the lookup plugin in `tasks/main.yml`:
    ```yaml
    - name: Retrieve credential
      set_fact:
@@ -86,24 +99,67 @@ CyberArk credentials are retrieved using the marketplace template lookup plugins
 3. Ensure the CyberArk safe and account exist
 4. Test credential retrieval before full deployment
 
+**Working with Handlers**
+
+Handlers are triggered by `notify` statements in tasks. Common pattern in `tasks/main.yml`:
+
+```yaml
+- name: Update nginx configuration
+  copy:
+    src: nginx.conf
+    dest: /etc/nginx/nginx.conf
+  notify: restart nginx
+```
+
+Define the handler in `handlers/main.yml`:
+
+```yaml
+- name: restart nginx
+  service:
+    name: nginx
+    state: restarted
+```
+
+**Managing Files**
+
+Place static files in the `files/` directory and reference them without paths:
+
+```yaml
+- name: Copy application script
+  copy:
+    src: deploy_app.sh
+    dest: /opt/scripts/deploy_app.sh
+    mode: '0755'
+```
+
 ### Best Practices
 
 - Always work in feature branches, never commit directly to main
 - Use descriptive commit messages following conventional commits format
-- Keep playbooks idempotent (running multiple times produces same result)
-- Use variables for environment-specific values
+- Keep tasks idempotent (running multiple times produces same result)
+- Put user-configurable variables in `defaults/`, internal variables in `vars/`
+- Use handlers for service restarts rather than direct restart tasks
+- Store static files in `files/`, use the `copy` module to deploy them
+- Define role dependencies in `meta/main.yml` for proper execution order
 - Tag tasks for selective execution: `tags: ['config', 'deploy']`
 - Implement check mode compatibility: `check_mode: yes`
 - Document all custom modules or complex logic
+- Use `include_tasks` or `import_tasks` to break up large `tasks/main.yml` files
 
 ## Testing Strategy
 
 ### 1. Syntax Validation
 
-Check playbook syntax before running:
+Check task syntax before running:
 
 ```bash
-ansible-playbook playbooks/deploy.yml --syntax-check
+ansible-playbook playbooks/site.yml --syntax-check
+```
+
+Or validate individual task files:
+
+```bash
+ansible-playbook tasks/main.yml --syntax-check
 ```
 
 ### 2. Dry Run (Check Mode)
