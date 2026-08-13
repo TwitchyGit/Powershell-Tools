@@ -1,0 +1,133 @@
+1. Saved searches, reports, and alerts
+
+All three are the same object type. Distinguish them with is_scheduled, alert_type, and actions.
+
+spl
+| rest /servicesNS/-/-/saved/searches count=0 splunk_server=*
+| where 'eai:acl.app'="<index>"
+| table title, eai:acl.app, eai:acl.owner, eai:acl.sharing, disabled,
+        is_scheduled, cron_schedule, alert_type, alert_condition, actions,
+        dispatch.earliest_time, dispatch.latest_time, description, search
+2. Dashboards
+
+eai:data holds the full definition — SimpleXML as XML, Dashboard Studio as JSON.
+
+spl
+| rest /servicesNS/-/-/data/ui/views count=0 splunk_server=*
+| where 'eai:acl.app'="<index>"
+| table title, label, eai:acl.app, eai:acl.owner, eai:acl.sharing, disabled, eai:data
+3. Prebuilt dashboard panels
+
+Shared panels with their own SPL, referenced by multiple dashboards.
+
+spl
+| rest /servicesNS/-/-/data/ui/panels count=0 splunk_server=*
+| where 'eai:acl.app'="<index>"
+| table title, eai:acl.app, eai:acl.owner, eai:acl.sharing, eai:data
+4. Navigation menus
+
+Tells you which dashboards and reports are actually surfaced in the app menu.
+
+spl
+| rest /servicesNS/-/-/data/ui/nav count=0 splunk_server=*
+| where 'eai:acl.app'="<index>"
+| table title, eai:acl.app, eai:acl.sharing, eai:data
+5. Search macros
+
+Run this early — macro definitions often hide the index reference and the real logic behind a short name.
+
+spl
+| rest /servicesNS/-/-/admin/macros count=0 splunk_server=*
+| where 'eai:acl.app'="<index>"
+| table title, eai:acl.app, eai:acl.owner, eai:acl.sharing, args, iseval, definition
+6. Event types
+spl
+| rest /servicesNS/-/-/saved/eventtypes count=0 splunk_server=*
+| where 'eai:acl.app'="<index>"
+| table title, eai:acl.app, eai:acl.owner, eai:acl.sharing, priority, disabled, search
+7. Tags
+spl
+| rest /servicesNS/-/-/configs/conf-tags count=0 splunk_server=*
+| where 'eai:acl.app'="<index>"
+| table title, eai:acl.app, eai:acl.owner, eai:acl.sharing, *
+8. Field extractions
+spl
+| rest /servicesNS/-/-/data/props/extractions count=0 splunk_server=*
+| where 'eai:acl.app'="<index>"
+| table title, stanza, attribute, type, eai:acl.app, eai:acl.owner, eai:acl.sharing, value
+9. Calculated fields
+spl
+| rest /servicesNS/-/-/data/props/calcfields count=0 splunk_server=*
+| where 'eai:acl.app'="<index>"
+| table title, stanza, attribute, eai:acl.app, eai:acl.owner, eai:acl.sharing, value
+10. Field aliases
+spl
+| rest /servicesNS/-/-/data/props/fieldaliases count=0 splunk_server=*
+| where 'eai:acl.app'="<index>"
+| table title, stanza, eai:acl.app, eai:acl.owner, eai:acl.sharing, value
+11. Lookup definitions
+spl
+| rest /servicesNS/-/-/data/transforms/lookups count=0 splunk_server=*
+| where 'eai:acl.app'="<index>"
+| table title, filename, collection, external_cmd, fields_list, max_matches,
+        eai:acl.app, eai:acl.owner, eai:acl.sharing
+12. Lookup table files
+
+Gives you the on-disk paths. The CSVs themselves must be downloaded separately (Settings → Lookups → Lookup table files, or | inputlookup <name> then export).
+
+spl
+| rest /servicesNS/-/-/data/lookup-table-files count=0 splunk_server=*
+| where 'eai:acl.app'="<index>"
+| table title, eai:acl.app, eai:acl.owner, eai:acl.sharing, eai:data
+13. Data models
+
+eai:data contains the full JSON model definition.
+
+spl
+| rest /servicesNS/-/-/datamodel/model count=0 splunk_server=*
+| where 'eai:acl.app'="<index>"
+| table title, displayName, description, eai:acl.app, eai:acl.owner,
+        eai:acl.sharing, acceleration, eai:data
+14. Workflow actions
+spl
+| rest /servicesNS/-/-/data/ui/workflow-actions count=0 splunk_server=*
+| where 'eai:acl.app'="<index>"
+| table title, label, type, link.uri, link.method, fields, eventtypes,
+        eai:acl.app, eai:acl.owner, eai:acl.sharing
+15. App context (run once, no filter)
+
+Confirms the app exists under the exact name you're filtering on.
+
+spl
+| rest /servicesNS/-/-/apps/local count=0 splunk_server=*
+| table title, label, version, author, disabled, visible, eai:acl.sharing
+Cross-checks
+
+These are not app-scoped and will catch content the queries above miss.
+
+Which scheduled searches actually run
+
+Metadata tells you what is scheduled; this tells you what is alive.
+
+spl
+index=_internal sourcetype=scheduler status=success earliest=-90d
+| stats count as runs, max(_time) as last_run by savedsearch_name, app
+| eval last_run=strftime(last_run, "%Y-%m-%d %H:%M")
+| sort - runs
+Ad hoc searches against the index
+
+Catches queries people run constantly but never saved — frequently the most important logic in the environment, and invisible to any knowledge-object export.
+
+spl
+index=_audit action=search info=granted earliest=-90d
+| search "*<index>*"
+| stats count, values(user) as users, max(_time) as last_seen by search
+| sort - count
+Content in other apps that touches this index
+
+Structural app filtering misses relevant objects parked elsewhere.
+
+spl
+| rest /servicesNS/-/-/saved/searches count=0 splunk_server=*
+| where like(lower(search), "%<index>%") AND 'eai:acl.app'!="<index>"
+| table title, eai:acl.app, eai:acl.owner, eai:acl.sharing, search
