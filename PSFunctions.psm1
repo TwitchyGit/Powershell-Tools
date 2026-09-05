@@ -16,6 +16,168 @@ if (-not (Test-Path -LiteralPath $configurationModulePath -PathType Leaf)) {
 # Import locally so mutable runtime state stays scoped to this function module.
 Import-Module -Name $configurationModulePath -Force -Scope Local -ErrorAction Stop
 
+# Logging and preference helpers used across the onboarding scripts.
+
+# Applies -Verbose/-Debug switches and Autosys-safe stream preferences globally,
+# so every script configures logging the same way instead of repeating this per-caller.
+$script:InDebug = $false
+function Set-GlobalPreferences {
+    [CmdletBinding()]
+    param(
+        [switch]$EnableVerbose,
+        [switch]$EnableDebug,
+        [switch]$IsAutosys
+    )
+
+    if ($EnableDebug) {
+        $Global:DebugPreference = 'Continue'
+        $script:InDebug = $true
+        Write-Host "DEBUG: Debug mode enabled globally"
+    } else {
+        $Global:DebugPreference = 'SilentlyContinue'
+    }
+
+    if ($EnableVerbose) {
+        $Global:VerbosePreference = 'Continue'
+        Write-Host "VERBOSE: Verbose mode enabled globally"
+    } else {
+        $Global:VerbosePreference = 'SilentlyContinue'
+    }
+
+    # Autosys has no console attached, so Write-Warning/-Information/-Debug/-Progress
+    # would otherwise fail trying to write to a stream nothing is reading.
+    if ($isAutosys) {
+        Write-Host "Autosys detected: $isAutosys"
+        $WarningPreference     = 'SilentlyContinue'
+        $InformationPreference = 'SilentlyContinue'
+        $VerbosePreference     = 'SilentlyContinue'
+        $DebugPreference       = 'SilentlyContinue'
+        $ProgressPreference    = 'SilentlyContinue'
+        [Console]::Out.Flush()
+    } else {
+        $Global:ConfirmPreference = 'None'
+    }
+}
+
+# Writes the log file's start-of-run header (called once at script startup).
+function LogStartScript {
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    Write-Output ("=" * 80)
+    Write-Output "INFO: Script started at $timestamp"
+
+    Write-Debug "ReportName: $ReportName `nScriptInfo: $ScriptInfo `nsetReportDir: $setReportDir `nConfDirLogs:  " +
+        "$ConfDirLogs `nConfLogFile: $ConfLogFile `nConfFileDirs:  $ConfDirFiles"
+
+    if ($ConfLogFile) {
+        Write-Output "INFO: Logfile written to $ConfLogFile"
+        Add-Content -Path $ConfLogFile -Value ("=" * 80) -ErrorAction SilentlyContinue
+        Add-Content -Path $ConfLogFile -Value "Script started at $timestamp" -ErrorAction SilentlyContinue
+    } else {
+        Write-Output "ERROR: Unable to write to logfile ($ConfLogFile)"
+    }
+}
+
+# Writes an INFO-prefixed line to stdout and $ConfLogFile. An empty message (or one
+# starting with `n) prints a blank line instead; a message containing "====" prints
+# a full-width separator instead - neither of those gets the INFO prefix or file log.
+function LogOutput {
+    param(
+        [string]$Message
+    )
+
+    $check = $false
+    if ($Message -eq "" -or $Message.StartsWith("`n")) {
+        Write-Output ""; $check = $true
+    }
+    if ($Message -like "*====*") {
+        Write-Output ("=" * 80); $check = $true
+    }
+    if ($check -eq $false) {
+        Write-Output "INFO: $Message"
+        if ($ConfLogFile) {
+            Add-Content -Path $ConfLogFile -Value "INFO: $Message" -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+# Writes an ERROR-prefixed line to stdout and $ConfLogFile.
+function LogError {
+    param(
+        [string]$Message
+    )
+
+    Write-Output "ERROR: $Message"
+    if ($ConfLogFile) {
+        Add-Content -Path $ConfLogFile -Value "ERROR: $Message" -ErrorAction SilentlyContinue
+    }
+}
+
+# Writes a WARN-prefixed line to stdout and $ConfLogFile, and tracks how many
+# warnings have been logged in $Global:LogWarnCount.
+function LogWarn {
+    param(
+        [string]$Message
+    )
+
+    if (-not (Test-Path Variable:Global:LogWarnCount)) { $Global:LogWarnCount = 0 }
+    $Global:LogWarnCount++
+
+    [Console]::Out.WriteLine("WARN: $Message")
+    if ($ConfLogFile) {
+        Add-Content -Path $ConfLogFile -Value "WARN: $Message" -ErrorAction SilentlyContinue
+    }
+}
+
+# Writes a DEBUG-prefixed line to stdout and $ConfLogFile, only when debug mode is on
+# (set via Set-GlobalPreferences -EnableDebug).
+function LogDebug {
+    param(
+        [string]$Message
+    )
+
+    if ($script:InDebug) {
+        Write-Host "DEBUG: $Message"
+        if ($ConfLogFile) {
+            Add-Content -Path $ConfLogFile -Value "DEBUG: $Message" -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+# Converts a PVWA epoch timestamp (seconds, or microseconds for values over 10 digits)
+# to a formatted date plus an age bucket (Recent / OlderThanSixMonths / OlderThanTwelveMonths).
+function ConvertDate($epochdate) {
+    if (($epochdate).length -gt 10 ) {
+        $seconds = $epochdate / 1000000
+        $dateTime = [DateTimeOffset]::FromUnixTimeSeconds($seconds)
+        $result = $dateTime.ToString("dd/MM/yyyy HH:mm")
+    } else {
+        $dateTime = [DateTimeOffset]::FromUnixTimeSeconds($epochdate)
+        $result = $dateTime.ToString("dd/MM/yyyy HH:mm")
+    }
+
+    # Check ages thresholds
+    $sixMonthsAgo = (Get-Date).AddMonths(-6)
+    $twelveMonthsAgo = (Get-Date).AddMonths(-12)
+
+    if ($datetime.DateTime -lt $twelveMonthsAgo) {
+        $ageCategory = "OlderThanSixMonths"
+    } elseif ($datetime.DateTime -lt $sixMonthsAgo) {
+        $ageCategory = "OlderThanTwelveMonths"
+    } else {
+        $ageCategory = "Recent"
+    }
+
+    return @{
+        Date                    = $result
+        AgeCategory             = $ageCategory
+        IsOlderThanSixMonths    = $datetime.DateTime -lt $sixMonthsAgo
+        IsOlderThanTwelveMonths = $datetime.DateTime -lt $twelveMonthsAgo
+    }
+}
+
+# Merges caller-supplied values into $ConfOnboardingRuntime (only known keys accepted),
+# so scripts can seed per-run state like credentials and PVWA URLs before calling into
+# the rest of this module.
 function Initialize-CybOnboardingContext {
     [CmdletBinding()]
     param(
@@ -25,16 +187,18 @@ function Initialize-CybOnboardingContext {
 
     # Reject unknown keys so configuration errors fail before any API request.
     foreach ($entry in $Configuration.GetEnumerator()) {
-        if (-not $CybOnboardingRuntime.ContainsKey($entry.Key)) {
+        if (-not $ConfOnboardingRuntime.ContainsKey($entry.Key)) {
             throw "Unsupported onboarding context value: $($entry.Key)"
         }
 
-        $CybOnboardingRuntime[$entry.Key] = $entry.Value
+        $ConfOnboardingRuntime[$entry.Key] = $entry.Value
     }
 }
 
 # Active Directory helpers.
 
+# Escapes LDAP filter metacharacters (\, *, (, ), NUL) so a group name containing
+# them can't break out of the filter string built in Resolve-GroupDN.
 function Escape-LDAPFilter {
   param([string]$Value)
   $Value = $Value -replace '\\', '\5c'
@@ -45,6 +209,9 @@ function Escape-LDAPFilter {
   return $Value
 }
 
+# Resolves a group name to its distinguishedName in one domain, trying a direct
+# identity lookup first and falling back to a samAccountName/CN search. Returns
+# $null (not a throw) when the group can't be found, so callers can just skip it.
 function Resolve-GroupDN {
   param([string]$Group,[string]$Domain,[System.Management.Automation.PSCredential]$Cred)
   $common = @{ Server = $Domain }
@@ -135,6 +302,8 @@ function Test-PVWATransientError {
     return $false
 }
 
+# Resolves a PVWA pagination "nextLink" (absolute or relative) to a full URL on the
+# same PVWA host, rejecting any link that points elsewhere or uses an unsupported scheme.
 function Resolve-PVWANextLink {
     [CmdletBinding()]
     param(
@@ -252,8 +421,8 @@ function Invoke-PVWARestMethod {
             if ($statusCode -eq 401 -and $Headers.ContainsKey('Authorization')) {
                 LogOutput "Re-authenticating..."
                 try {
-                    $CybOnboardingRuntime.AuthTrimmed = Get-AuthToken
-                    $Headers['Authorization'] = $CybOnboardingRuntime.AuthTrimmed
+                    $ConfOnboardingRuntime.AuthTrimmed = Get-AuthToken
+                    $Headers['Authorization'] = $ConfOnboardingRuntime.AuthTrimmed
                 } catch {
                     $failure = [System.Exception]::new(
                         "Re-authentication failed calling ${Uri}: $($_.Exception.Message)",
@@ -278,16 +447,18 @@ function Invoke-PVWARestMethod {
     throw $failure
 }
 
+# Logs on to PVWA using the credential file in $ConfOnboardingRuntime.ConfAccountCredFile
+# and returns the session token, also caching it on $ConfOnboardingRuntime.AuthTrimmed.
 function Get-AuthToken {
     [CmdletBinding()]
     param()
 
-    if (-not (Test-Path $CybOnboardingRuntime.ConfAccountCredFile)) {
-        throw "Credential file not found: $($CybOnboardingRuntime.ConfAccountCredFile)"
+    if (-not (Test-Path $ConfOnboardingRuntime.ConfAccountCredFile)) {
+        throw "Credential file not found: $($ConfOnboardingRuntime.ConfAccountCredFile)"
     }
 
     try {
-        $PVWACreds = Import-Clixml -Path $CybOnboardingRuntime.ConfAccountCredFile
+        $PVWACreds = Import-Clixml -Path $ConfOnboardingRuntime.ConfAccountCredFile
         
         if (-not $PVWACreds -or -not $PVWACreds.UserName -or -not $PVWACreds.Password) {
             throw "Invalid credentials in file"
@@ -301,17 +472,17 @@ function Get-AuthToken {
         LogDebug "Authenticating as: $($PVWACreds.UserName)"
 
         $authResponse = Invoke-PVWARestMethod `
-            -Uri $CybOnboardingRuntime.PVWALogonUrl `
+            -Uri $ConfOnboardingRuntime.PVWALogonUrl `
             -Method "POST" `
             -Body $AuthBody `
-            -TimeoutSec $CybOnboardingRuntime.ConnectionTimeoutSeconds
+            -TimeoutSec $ConfOnboardingRuntime.ConnectionTimeoutSeconds
 
         if (-not $authResponse) {
             throw "Authentication failed - no token received"
         }
 
         $token = $authResponse -replace '"', ''
-        $CybOnboardingRuntime.AuthTrimmed = $token
+        $ConfOnboardingRuntime.AuthTrimmed = $token
         LogDebug "Authentication successful"
         return $token
 
@@ -324,6 +495,8 @@ function Get-AuthToken {
     }
 }
 
+# Pages through the PVWA Safes API and returns every Safe. Stops early after three
+# consecutive page failures rather than retrying an unhealthy vault indefinitely.
 function Get-AllSafes {
     [CmdletBinding()]
     param()
@@ -339,14 +512,14 @@ function Get-AllSafes {
     LogOutput "Retrieving all safes..."
 
     while ($consecutiveFailures -lt $maxConsecutiveFailures) {
-        $uri = "$($CybOnboardingRuntime.PVWAGetSafesUrl)?offset=$offset&limit=$limit"
+        $uri = "$($ConfOnboardingRuntime.PVWAGetSafesUrl)?offset=$offset&limit=$limit"
         LogDebug "Requesting safes: $uri"
 
         try {
             $response = Invoke-PVWARestMethod `
                 -Uri $uri `
-                -Headers @{'Authorization' = $CybOnboardingRuntime.AuthTrimmed } `
-                -TimeoutSec $CybOnboardingRuntime.ConnectionTimeoutSeconds
+                -Headers @{'Authorization' = $ConfOnboardingRuntime.AuthTrimmed } `
+                -TimeoutSec $ConfOnboardingRuntime.ConnectionTimeoutSeconds
         } catch {
             # Skip an exhausted page so later Safe-list pages can still be attempted.
             LogError "Failed to retrieve safes at offset $offset : $($_.Exception.Message)"
@@ -380,7 +553,7 @@ function Get-AllSafes {
 
             LogOutput "Retrieved $($safesData.value.Count) safes (total: $($allSafes.Count))"
 
-            if (-not $CybOnboardingRuntime.isAutosys) {
+            if (-not $ConfOnboardingRuntime.isAutosys) {
                 Write-Progress -Activity "Retrieving Safes" -Status "$($allSafes.Count) safes" -PercentComplete -1
             }
 
@@ -404,13 +577,15 @@ function Get-AllSafes {
     return $allSafes
 }
 
+# Retrieves the full extended-details user list from PVWA in one call and returns
+# the parsed JSON response.
 function Get-Users {
     [CmdletBinding()]
     param()
 
     try {
         # Extended details avoid separate calls for memberships and permissions.
-        $response = Invoke-PVWARestMethod -Uri $CybOnboardingRuntime.PVWAGetUsersUrl -Headers @{'Authorization' = $CybOnboardingRuntime.AuthTrimmed } -TimeoutSec $CybOnboardingRuntime.ConnectionTimeoutSeconds
+        $response = Invoke-PVWARestMethod -Uri $ConfOnboardingRuntime.PVWAGetUsersUrl -Headers @{'Authorization' = $ConfOnboardingRuntime.AuthTrimmed } -TimeoutSec $ConfOnboardingRuntime.ConnectionTimeoutSeconds
 
         if ([string]::IsNullOrWhiteSpace($response)) {
             throw "Failed to retrieve users - API returned no data"
@@ -433,6 +608,8 @@ function Get-Users {
     }
 }
 
+# Entry point for the accounts report: validates the output path is writable, then
+# delegates the actual scan/export to Get-AllAccounts.
 function Process-AccountsReport {
     [CmdletBinding()]
     param()
@@ -441,7 +618,7 @@ function Process-AccountsReport {
         LogOutput "Starting accounts report generation..."
 
         $TargetFile = "Data_PasswordObjects_Bulk.csv"
-        $OutputPath = Join-Path -Path $CybOnboardingRuntime.ConfDirLogs -ChildPath $TargetFile
+        $OutputPath = Join-Path -Path $ConfOnboardingRuntime.ConfDirLogs -ChildPath $TargetFile
 
         # Fail before the long scan if the report destination is unavailable.
         $outputDirectory = Split-Path $OutputPath -Parent
@@ -460,7 +637,7 @@ function Process-AccountsReport {
         # Safe-scoped buffering keeps the normal path to one append per Safe.
         # PageSize of 1000 balances API performance with per-page processing cost.
         Get-AllAccounts -OutputPath $OutputPath
-        $totalAccounts = $CybOnboardingRuntime.AccountsResult
+        $totalAccounts = $ConfOnboardingRuntime.AccountsResult
 
         LogOutput "Account Report completed: $totalAccounts accounts written to $OutputPath"
 
@@ -470,6 +647,10 @@ function Process-AccountsReport {
     }
 }
 
+# Scans every non-system Safe for accounts and streams them to $OutputPath as CSV,
+# one Safe at a time. Tracks failed/partial/skipped Safes and accounts separately,
+# and opens a circuit breaker after three consecutive transient Safe failures so a
+# degraded vault doesn't turn into hours of retries. Sets $ConfOnboardingRuntime.AccountsResult.
 function Get-AllAccounts {
     [CmdletBinding()]
     param(
@@ -494,7 +675,7 @@ function Get-AllAccounts {
     $allSafes = Get-AllSafes
     if (-not $allSafes -or $allSafes.Count -eq 0) {
         LogError "No safes retrieved - cannot enumerate accounts"
-        $CybOnboardingRuntime.AccountsResult = 0
+        $ConfOnboardingRuntime.AccountsResult = 0
         return
     }
 
@@ -543,7 +724,7 @@ function Get-AllAccounts {
         $completedSafes++
 
         $encodedSafeName = [Uri]::EscapeDataString($safeName)
-        $uri = "$($CybOnboardingRuntime.PVWAAccountsUrl)?filter=safeName eq ${encodedSafeName}&limit=$pageSize"
+        $uri = "$($ConfOnboardingRuntime.PVWAAccountsUrl)?filter=safeName eq ${encodedSafeName}&limit=$pageSize"
 
         $safeAccountCount  = 0
         $safeHadAnyPageData = $false
@@ -554,8 +735,8 @@ function Get-AllAccounts {
         while ($uri) {
             try {
                 $content = Invoke-PVWARestMethod -Uri $uri `
-                    -Headers @{ 'Authorization' = $CybOnboardingRuntime.AuthTrimmed } `
-                    -TimeoutSec $CybOnboardingRuntime.ConnectionTimeoutSeconds
+                    -Headers @{ 'Authorization' = $ConfOnboardingRuntime.AuthTrimmed } `
+                    -TimeoutSec $ConfOnboardingRuntime.ConnectionTimeoutSeconds
             } catch {
                 # The request helper records whether an exhausted failure was
                 # transient so only connection-type failures affect the breaker.
@@ -635,7 +816,7 @@ function Get-AllAccounts {
             if ($accountsData.nextLink) {
                 try {
                     $uri = Resolve-PVWANextLink `
-                        -BaseUrl $CybOnboardingRuntime.ConfPVWAURL `
+                        -BaseUrl $ConfOnboardingRuntime.ConfPVWAURL `
                         -NextLink $accountsData.nextLink
                 } catch {
                     LogError "Safe '$safeName': invalid accounts nextLink - $($_.Exception.Message)"
@@ -671,7 +852,7 @@ function Get-AllAccounts {
             $consecutiveTransientSafeFailures = 0
         }
 
-        if (-not $CybOnboardingRuntime.isAutosys) {
+        if (-not $ConfOnboardingRuntime.isAutosys) {
             $pct = [Math]::Min(100, [int](($completedSafes / $totalSafes) * 100))
             Write-Progress -Activity "Retrieving Accounts" `
                 -Status "Safes: $completedSafes/$totalSafes | Accounts: $totalAccounts" `
@@ -684,7 +865,7 @@ function Get-AllAccounts {
         }
     }
 
-    if (-not $CybOnboardingRuntime.isAutosys) {
+    if (-not $ConfOnboardingRuntime.isAutosys) {
         Write-Progress -Activity "Retrieving Accounts" -Completed
     }
 
@@ -711,9 +892,11 @@ function Get-AllAccounts {
         LogOutput "No failures during account retrieval."
     }
 
-    $CybOnboardingRuntime.AccountsResult = $totalAccounts
+    $ConfOnboardingRuntime.AccountsResult = $totalAccounts
 }
 
+# Exports the vault user list to two CSVs: group memberships and user attribute
+# details, kept separate so each has a focused, stable column set.
 function Process-UsersReport {
     [CmdletBinding()]
     param()
@@ -731,9 +914,9 @@ function Process-UsersReport {
             $GetUsersResponse.Users | Select-Object -Property id, username, 
                 @{Name = "GroupMembership"; Expression = { ($_.groupsMembership.groupName -join ';') }},
                 source, userType, suspended |
-                Export-Csv -Path (Join-Path -Path $CybOnboardingRuntime.ConfDirLogs -ChildPath $TargetFileGroups) -NoTypeInformation -UseCulture -Force
+                Export-Csv -Path (Join-Path -Path $ConfOnboardingRuntime.ConfDirLogs -ChildPath $TargetFileGroups) -NoTypeInformation -UseCulture -Force
 
-            LogOutput "Users Group Memberships Report written to $(Join-Path -Path $CybOnboardingRuntime.ConfDirLogs -ChildPath $TargetFileGroups)"
+            LogOutput "Users Group Memberships Report written to $(Join-Path -Path $ConfOnboardingRuntime.ConfDirLogs -ChildPath $TargetFileGroups)"
 
             # Join authorization arrays so CSV does not contain a type name.
             foreach ($User in $GetUsersResponse.Users) {
@@ -742,9 +925,9 @@ function Process-UsersReport {
 
             # Keep user attributes separate from the membership feed.
             $GetUsersResponse.Users | Select-Object -Property username, id, source, userType, vaultAuthorization, suspended |
-                Export-Csv -Path (Join-Path -Path $CybOnboardingRuntime.ConfDirLogs -ChildPath $TargetFileDetails) -NoTypeInformation -UseCulture -Force
+                Export-Csv -Path (Join-Path -Path $ConfOnboardingRuntime.ConfDirLogs -ChildPath $TargetFileDetails) -NoTypeInformation -UseCulture -Force
 
-            LogOutput "Users Details Report written to $(Join-Path -Path $CybOnboardingRuntime.ConfDirLogs -ChildPath $TargetFileDetails)"
+            LogOutput "Users Details Report written to $(Join-Path -Path $ConfOnboardingRuntime.ConfDirLogs -ChildPath $TargetFileDetails)"
         } else {
             LogError "Failed to retrieve users data"
             throw "No users data retrieved from API"
@@ -756,6 +939,8 @@ function Process-UsersReport {
     }
 }
 
+# Exports Safe details (retention policy, creator, timestamps, etc.) for every
+# Safe to a single CSV.
 function Process-SafesReport {
     [CmdletBinding()]
     param()
@@ -779,9 +964,9 @@ function Process-SafesReport {
                 @{Name = 'creationTime'; Expression = { (ConvertDate $_.creationTime).Date } },
                 @{Name = 'lastModificationTime2'; Expression = { (ConvertDate $_.lastModificationTime).Date } },
                 isExpiredMember |
-                Export-Csv -Path (Join-Path -Path $CybOnboardingRuntime.ConfDirLogs -ChildPath $TargetFile) -NoTypeInformation -UseCulture -Force
+                Export-Csv -Path (Join-Path -Path $ConfOnboardingRuntime.ConfDirLogs -ChildPath $TargetFile) -NoTypeInformation -UseCulture -Force
 
-            LogOutput "Safes Report written to $(Join-Path -Path $CybOnboardingRuntime.ConfDirLogs -ChildPath $TargetFile)"
+            LogOutput "Safes Report written to $(Join-Path -Path $ConfOnboardingRuntime.ConfDirLogs -ChildPath $TargetFile)"
         } else {
             LogError "Failed to retrieve safes data or no safes found"
             throw "No safes data available"
@@ -793,6 +978,8 @@ function Process-SafesReport {
     }
 }
 
+# Forces a garbage collection pass at the end of a run, so a long report doesn't
+# leave a large working set behind for the rest of the scheduled job.
 function Cleanup {
     [System.GC]::Collect()
     [System.GC]::WaitForPendingFinalizers()
@@ -800,6 +987,8 @@ function Cleanup {
 
 # CyberArk user information functions.
 
+# Logs on to PVWA with a pre-built authentication body and stores the resulting
+# token in $ConfOnboardingRuntime.Header for subsequent calls.
 Function New-Login {
     Param(
         [string]$Authentication
@@ -811,7 +1000,7 @@ Function New-Login {
             $DebugPreference = 'Continue'  # Write-Debug will pause interactively without this
         }
 
-        $loginCybURI = "$($CybOnboardingRuntime.ConfPVWAURL)/API/auth/Cyberark/Logon"
+        $loginCybURI = "$($ConfOnboardingRuntime.ConfPVWAURL)/API/auth/Cyberark/Logon"
         $headers = $null
         $headers = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
         $headers.Add("Content-Type", "application/json")
@@ -826,7 +1015,7 @@ Function New-Login {
                 -Body $Authentication -UseBasicParsing -ErrorAction Stop
             $Message = "INFO: CyberArk Vault login successful"
             $headers.Add("Authorization", $result)
-            $CybOnboardingRuntime.Header = $headers
+            $ConfOnboardingRuntime.Header = $headers
         } catch {
             $body = $_.ErrorDetails.Message
             if ($null -ne $body) {
@@ -842,6 +1031,9 @@ Function New-Login {
     }
 }
 
+# Retrieves the /API/Users list using the session already stored in
+# $ConfOnboardingRuntime.Header (set by New-Login). Returns a Success/Data/Message
+# object rather than throwing, so callers can branch on failure without try/catch.
 function Get-AllUsers {
     [CmdletBinding()]
     param()
@@ -852,14 +1044,14 @@ function Get-AllUsers {
     }
 
     try {
-        Write-Debug "Invoke-RestMethod -Uri `"$($CybOnboardingRuntime.ConfPVWAURL)/API/Users`" -Method GET"
+        LogDebug "Invoke-RestMethod -Uri `"$($ConfOnboardingRuntime.ConfPVWAURL)/API/Users`" -Method GET"
         # Increased timeout - large user lists can take a while server-side
-        $Response = Invoke-RestMethod -Uri "$($CybOnboardingRuntime.ConfPVWAURL)/API/Users" -Method GET `
-            -Headers $CybOnboardingRuntime.Header -UseBasicParsing -ContentType 'application/json; charset=utf-8' `
+        $Response = Invoke-RestMethod -Uri "$($ConfOnboardingRuntime.ConfPVWAURL)/API/Users" -Method GET `
+            -Headers $ConfOnboardingRuntime.Header -UseBasicParsing -ContentType 'application/json; charset=utf-8' `
             -TimeoutSec 300 `
             -Verbose:$false -Debug:$false -ErrorAction Stop
 
-        Write-Debug "GOT $($Response.Total) users"
+        LogDebug "GOT $($Response.Total) users"
         return [PSCustomObject]@{ Success = $true; Data = $Response; Message = 'OK' }
     } catch {
         # Surface full error context
@@ -877,6 +1069,10 @@ function Get-AllUsers {
     }
 }
 
+# Retrieves one user's full detail record (including group memberships, filtered
+# through $ConfOnboardingRuntime.ExcludedGroupPatterns) with retry on timeouts/5xx
+# and a single automatic re-login on a 401. Returns a Success/Data/Message/GroupCount
+# object rather than throwing, so a per-user failure doesn't need its own try/catch.
 function Get-UserDetails {
     [CmdletBinding()]
     param(
@@ -888,7 +1084,7 @@ function Get-UserDetails {
 
     $DebugPreference = 'SilentlyContinue'
 
-    $uri = "$($CybOnboardingRuntime.ConfPVWAURL)/API/Users/$UserId"
+    $uri = "$($ConfOnboardingRuntime.ConfPVWAURL)/API/Users/$UserId"
     $maxRetries = 3
     $attempt = 0
     $reloginAttempted = $false   # 401 re-login is allowed once only
@@ -897,7 +1093,7 @@ function Get-UserDetails {
         $attempt++
         try {
             $rawResponse = Invoke-WebRequest -Uri $uri -Method GET `
-                -Headers $CybOnboardingRuntime.Header -UseBasicParsing `
+                -Headers $ConfOnboardingRuntime.Header -UseBasicParsing `
                 -ContentType 'application/json; charset=utf-8' `
                 -TimeoutSec 60 `
                 -Verbose:$false -Debug:$false -ErrorAction Stop
@@ -908,12 +1104,12 @@ function Get-UserDetails {
             $Response = $jsonText | ConvertFrom-Json
 
             # Strip exact-name and wildcard groups from the shared exclusion configuration.
-            if ($CybOnboardingRuntime.ExcludedGroupPatterns -and @($Response.groupsMembership).Count -gt 0) {
+            if ($ConfOnboardingRuntime.ExcludedGroupPatterns -and @($Response.groupsMembership).Count -gt 0) {
                 $Response.groupsMembership = @(
                     $Response.groupsMembership | Where-Object {
                         $gn = $_.groupName
                         $keep = $true
-                        foreach ($pattern in $CybOnboardingRuntime.ExcludedGroupPatterns) {
+                        foreach ($pattern in $ConfOnboardingRuntime.ExcludedGroupPatterns) {
                             if ($gn -like $pattern) { $keep = $false; break }
                         }
                         $keep
@@ -952,9 +1148,9 @@ function Get-UserDetails {
                     return [PSCustomObject]@{ Success = $false; Data = $null; Message = "Repeated 401 for user $UserId ($UserName) after re-login - giving up" }
                 }
                 $reloginAttempted = $true
-                LogMessage("WARN: 401 on user $UserId ($UserName) - re-login and retry once")
-                $loginSplat = $CybOnboardingRuntime.LoginSplat
-                $relogin = New-Login -Authentication $CybOnboardingRuntime.PVWAAuthBody.AuthBody @loginSplat
+                LogWarn "401 on user $UserId ($UserName) - re-login and retry once"
+                $loginSplat = $ConfOnboardingRuntime.LoginSplat
+                $relogin = New-Login -Authentication $ConfOnboardingRuntime.PVWAAuthBody.AuthBody @loginSplat
                 if (-not $relogin.Return) {
                     return [PSCustomObject]@{ Success = $false; Data = $null; Message = "Re-login failed for user $UserId ($UserName): $($relogin.Message)" }
                 }
@@ -965,7 +1161,7 @@ function Get-UserDetails {
             # Timeout or transient - back off and retry
             if ($statusCode -in @(408, 429, 500, 502, 503, 504) -or $isTimeout) {
                 $backoff = [Math]::Pow(2, $attempt)
-                LogMessage("WARN: Status=$statusCode Timeout=$isTimeout on user $UserId ($UserName) attempt $attempt - backing off ${backoff}s")
+                LogWarn "Status=$statusCode Timeout=$isTimeout on user $UserId ($UserName) attempt $attempt - backing off ${backoff}s"
                 Start-Sleep -Seconds $backoff
                 continue
             }
@@ -980,6 +1176,13 @@ function Get-UserDetails {
 }
 
 Export-ModuleMember -Function @(
+    'Set-GlobalPreferences'
+    'LogStartScript'
+    'LogOutput'
+    'LogError'
+    'LogWarn'
+    'LogDebug'
+    'ConvertDate'
     'Initialize-CybOnboardingContext'
     'Escape-LDAPFilter'
     'Resolve-GroupDN'
@@ -996,11 +1199,13 @@ Export-ModuleMember -Function @(
     'Get-AllUsers'
     'Get-UserDetails'
 ) -Variable @(
-    'CybLegacyConfigurationModulePath'
-    'CybADConfigurationModuleName'
-    'CybSafeScanLogPath'
-    'CybPVWAEndpointSuffixes'
-    'CybUserInformationExcludedGroupPatterns'
-    'CybUserGroupAssignmentConfig'
-    'CybHumanUserScanConfig'
+    'ConfLegacyConfigurationModulePath'
+    'ConfADConfigurationModuleName'
+    'ConfSafeScanLogPath'
+    'ConfPVWAEndpointSuffixes'
+    'ConfUserInformationExcludedGroupPatterns'
+    'ConfUserGroupAssignmentConfig'
+    'ConfHumanUserScanConfig'
+    'ConfADDomains'
+    'ConfADGroups'
 )

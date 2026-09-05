@@ -45,13 +45,16 @@ param (
 # Initialize exit code (0 = success, 1 = failure)
 $exitCode = 0
 
+$configModulePath = Join-Path -Path $PSScriptRoot -ChildPath 'Config/ConfigModule.psm1'
 $functionsModulePath = Join-Path -Path $PSScriptRoot -ChildPath 'Config/PSFunctions.psm1'
 
-# Load shared functions first because they expose the legacy configuration path.
+# Load shared configuration and functions first because they expose the legacy configuration path.
 try {
+    Import-Module -Name $configModulePath -Force -ErrorAction Stop
     Import-Module -Name $functionsModulePath -Force -ErrorAction Stop
-    Import-Module -Name $CybLegacyConfigurationModulePath -Force -Global -ErrorAction Stop
+    Import-Module -Name $ConfLegacyConfigurationModulePath -Force -Global -ErrorAction Stop
 } catch {
+    # Log* functions may not be loaded yet if the import above failed, so fall back to Write-Output.
     Write-Output "ERROR: Unable to import modules: $($_.Exception.Message)"
     exit 1
 }
@@ -67,12 +70,12 @@ Set-GlobalPreferences -EnableVerbose:$InVerbose -EnableDebug:$InDebug -IsAutosys
 
 # Stop before API work when environment-specific configuration is missing.
 if ([string]::IsNullOrWhiteSpace([string]$Environment)) {
-    LogError "Environment variable must be set via $CybLegacyConfigurationModulePath"
+    LogError "Environment variable must be set via $ConfLegacyConfigurationModulePath"
     exit 1
 }
 
 # Initialize logging system
-$Script:LogPath = $CybSafeScanLogPath
+$Script:LogPath = $ConfSafeScanLogPath
 LogStartScript
 
 # Resolve legacy relative paths from the configured files directory.
@@ -80,16 +83,16 @@ Set-Location $ConfDirFiles
 
 # Build CyberArk API endpoint URLs from shared configuration.
 if ([string]::IsNullOrWhiteSpace([string]$ConfPVWAURL)) {
-    LogError "ConfPVWAURL must be set via $CybLegacyConfigurationModulePath"
+    LogError "ConfPVWAURL must be set via $ConfLegacyConfigurationModulePath"
     exit 1
 }
 
 # Normalize once so endpoint joins do not produce double slashes.
 $PVWABaseUrl     = $ConfPVWAURL.TrimEnd('/')
-$PVWALogonUrl    = "$PVWABaseUrl/$($CybPVWAEndpointSuffixes.Authentication)"
-$PVWAAccountsUrl = "$PVWABaseUrl/$($CybPVWAEndpointSuffixes.Accounts)"
-$PVWAGetUsersUrl = "$PVWABaseUrl/$($CybPVWAEndpointSuffixes.Users)"
-$PVWAGetSafesUrl = "$PVWABaseUrl/$($CybPVWAEndpointSuffixes.Safes)"
+$PVWALogonUrl    = "$PVWABaseUrl/$($ConfPVWAEndpointSuffixes.Authentication)"
+$PVWAAccountsUrl = "$PVWABaseUrl/$($ConfPVWAEndpointSuffixes.Accounts)"
+$PVWAGetUsersUrl = "$PVWABaseUrl/$($ConfPVWAEndpointSuffixes.Users)"
+$PVWAGetSafesUrl = "$PVWABaseUrl/$($ConfPVWAEndpointSuffixes.Safes)"
 
 # Pass only runtime values needed by the shared function module.
 Initialize-CybOnboardingContext -Configuration @{
