@@ -9,6 +9,7 @@ are retained as reference copies and are not used by the active account-reportin
 
 | File | Responsibility |
 |---|---|
+| `AutosysRunfile.ps1` | Windows PowerShell 5.1 AutoSys entry point. Starts each reporting script as a PowerShell 7 child and returns the first nonzero child exit code. |
 | `Scan-AllObjectsInSafes.ps1` | Command-line entry point. Loads configuration, authenticates to PVWA and runs the selected reports. |
 | `Config/ConfigModule.psm1` | Defines environment paths, PVWA settings, output locations and mutable runtime configuration. |
 | `Config/PSFunctions.psm1` | Implements authentication, retries, Safe discovery, account retrieval, CSV creation and logging. |
@@ -16,11 +17,32 @@ are retained as reference copies and are not used by the active account-reportin
 
 ## Running the accounts report
 
-Run from Windows PowerShell 5.1 on the reporting server:
+## PowerShell7 update
+
+The active scripts require PowerShell 7.6 Core. From a PowerShell 7 session, run interactively with:
 
 ```powershell
 .\Scan-AllObjectsInSafes.ps1 -ReportAccounts
 ```
+
+AutoSys continues to use Windows PowerShell 5.1, but invokes `AutosysRunfile.ps1` instead of the reporting
+scripts directly:
+
+```text
+powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File C:\Cyb-User-Onboarding\AutosysRunfile.ps1
+```
+
+The wrapper starts each configured child synchronously with PowerShell 7. It demonstrates both direct
+`pwsh.exe` invocation and `&` invocation using the full `C:\Program Files\PowerShell\7\pwsh.exe` path. It
+captures each child process result and normalises any nonzero result to exit code `1` so AutoSys receives
+the overall success or failure result.
+
+AutoSys must capture the process exit code plus standard output. A missing report switch, invalid
+configuration, authentication failure, report-level failure or failure to launch PowerShell 7 returns exit
+code `1`. Only scripts explicitly launched by `AutosysRunfile.ps1` use this compatibility path.
+
+Active scripts do not use `Write-Host`. Recoverable function failures use terminating error records for the
+existing `try/catch` flow. Entry scripts log an appropriate message and return only exit code `0` or `1`.
 
 The request timeout defaults to 300 seconds. It can be changed for the run:
 
@@ -59,19 +81,20 @@ The launcher imports `ConfigModule.psm1`, `PSFunctions.psm1` and the configured 
 exit code `1` if module loading fails, the environment is blank or `ConfPVWAURL` is blank.
 
 The PVWA base URL has trailing slashes removed once. The launcher then constructs the authentication,
-accounts, users and Safes API URLs from the suffixes in `ConfigModule.psm1`.
+logoff, accounts, users and Safes API URLs from the suffixes in `ConfigModule.psm1`.
 
 ### 2. Configure logging and runtime state
 
 The launcher passes the credential path, request timeout, API URLs, log directory, normalized PVWA URL and
 Autosys state into the function module. Autosys runs suppress interactive progress output.
 
-Logging writes to the console and to `$ConfLogFile` when that file is configured. Debug output includes the
+Logging writes to redirectable standard output and to `$ConfLogFile` when that file is configured. Debug output includes the
 resolved API URLs when `-Debug` is supplied.
 
 ### 3. Authenticate before running reports
 
-`Get-AuthToken` reads the CLIXML credential and posts JSON containing `username` and `password` to the PVWA
+`Get-AuthToken` reads the CLIXML credential and posts JSON containing `username`, `password` plus
+`concurrentSession=true` to the PVWA
 CyberArk Logon endpoint. The returned token has JSON quote characters removed and is cached in
 `$ConfOnboardingRuntime.AuthTrimmed`.
 
@@ -101,7 +124,7 @@ report at that path is overwritten.
 - The final Safe-list failure summary reports a count only.
 
 If no Safes are returned, `Get-AllAccounts` writes a zero-row CSV header, logs that accounts cannot be
-enumerated and returns with `AccountsResult = 0`. The current code does not throw for this condition.
+enumerated and returns with `AccountsResult = 0`. This condition does not terminate the process.
 
 ### 6. Exclude system Safes
 
@@ -124,7 +147,9 @@ is logged. Their names are not printed.
 ### 7. Process eligible Safes sequentially
 
 Eligible Safes are processed one at a time. The active path has no threading, runspaces or parallel account
-requests.
+requests. PVWA concurrent-session login prevents independent processes from invalidating each other's tokens.
+Because report and log filenames are fixed, the launcher also takes an exclusive run lock. A second overlapping
+run fails with exit code `1` rather than writing into the same files.
 
 For each Safe the function:
 
@@ -166,7 +191,7 @@ PVWA login attempt:
   continues with the next Safe.
 - If login fails, account retrieval stops. Attempted failed or partial Safes are printed with their errors.
   Remaining unattempted Safes are reported only as `SkippedPVWAUnavailable: N safe(s)`.
-- After writing those summaries, `Get-AllAccounts` throws. The accounts report fails and the launcher sets
+- After writing those summaries, `Get-AllAccounts` writes a terminating error record. The accounts report fails and the launcher sets
   the final process exit code to `1`.
 
 A successful Safe also resets the consecutive transient-failure counter. Permanent failures and JSON parse
@@ -178,12 +203,19 @@ failures do not advance that counter.
 The launcher can continue with `-ReportUsers` or `-ReportSafes` if those switches were also supplied. Any
 report failure makes the final process exit code `1`.
 
-`Cleanup` performs .NET garbage collection. The current launcher does not call a PVWA logoff endpoint.
+`Cleanup` calls the PVWA logoff endpoint, clears the cached token and performs .NET garbage collection. The
+launcher releases its exclusive run lock before returning the process exit code.
 
 ## REST retry policy
 
 Normal PVWA calls use up to three attempts. After the first transient failure the script waits 10 seconds.
-After the second it waits 20 seconds. The one-attempt PVWA availability login is the only exception.
+After the second it waits 20 seconds. The availability check and connection-recovery login each use one
+attempt.
+
+On the first connection-closed error during an account request, the helper performs one fresh login in the
+same process and immediately retries the current Safe request once. Normal transient retries remain available
+after that single recovery action. HTTP failures log the complete nested exception chain. JSON parse failures
+also log status, content type, content length plus negotiated protocol without printing valid account JSON.
 
 | Classification | Current handling |
 |---|---|
@@ -193,7 +225,7 @@ After the second it waits 20 seconds. The one-attempt PVWA availability login is
 | Timeout, connection closed/reset/refused, DNS failure or recognised network exception | Transient and retried. |
 | Unrecognised error | Not transient and fails immediately. |
 
-Once attempts are exhausted, the REST helper throws an exception marked with `PVWATransient = true`. The
+Once attempts are exhausted, the REST helper writes a terminating error record marked with `PVWATransient = true`. The
 Safe loop uses that marker when counting consecutive transient Safe failures.
 
 ## CSV output schema
@@ -265,14 +297,14 @@ If none of the failure categories occurred, the script logs `No failures during 
 | Individual failed or partial Safe while PVWA remains responsive | Does not change the exit code |
 | Individual malformed account row | Does not change the exit code |
 
-If no report switch is supplied, the current launcher still loads configuration and authenticates before
-running cleanup and returning `0`, assuming startup succeeds.
+If no report switch is supplied, the launcher returns `1` before authentication.
 
-## Current TLS and certificate behaviour
+## HTTP, TLS and certificate behaviour
 
-The active code explicitly selects TLS 1.2. It disables certificate revocation checking. `ConfigModule.psm1`
-also installs a certificate-validation callback that accepts the server certificate, including self-signed
-or expired certificates. This section records the current implementation and is not a security endorsement.
+PowerShell 7 uses the .NET HttpClient stack. Requests specify HTTP/2 and use separate connection plus operation
+timeouts. Legacy `ServicePointManager` settings have been removed. Certificate validation uses the operating
+system trust store: the PVWA certificate chain, hostname and validity period must pass normal OS validation.
+There is no certificate-bypass callback or `SkipCertificateCheck` switch.
 
 ## Validation status
 

@@ -1,3 +1,4 @@
+# PowerShell7 update: This module provides configuration for the PowerShell 7.6 reporting scripts.
 <#
 .SYNOPSIS
     Powershell module handling variables for powershell scripts
@@ -14,17 +15,10 @@
     Variables functions returned in the Export-ModuleMember section.
 #>
 
-# Load System.Web assembly for URL encoding
-Add-Type -AssemblyName System.Web
+# PowerShell7 update: URI escaping uses System.Uri because System.Web is not part of .NET Core.
 
-# Force TLS 1.2 and avoid small-request delays in Windows PowerShell 5.1.
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-[Net.ServicePointManager]::Expect100Continue = $false
-[Net.ServicePointManager]::UseNagleAlgorithm = $false
-# Keep revocation behaviour unchanged until the PVWA certificate policy is confirmed.
-[Net.ServicePointManager]::CheckCertificateRevocationList = $false
-# For Invoke-RestMethod - Bypass certificate validation (allows self-signed and expired certs)
-[System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+# PowerShell7 update: HttpClient negotiates TLS and validates certificates through the OS trust store.
+# ServicePointManager settings only affect the legacy .NET Framework HTTP stack and are intentionally removed.
 
 # Set directory where local config files are stored
 $Script:BaseReportsDir  = "D:\Reports"
@@ -36,8 +30,9 @@ if (Test-Path -Path "${BaseLocalConfig}\Environment.cfg") {
     Set-Variable -Name Environment -Value (Get-Content -Path ${BaseLocalConfig}\Environment.cfg)
     $Environment = $Environment.Trim()
 } else {
-    Write-Host "ERROR: ${BaseLocalConfig}\Environment.cfg not setup"
-    return $false
+    # PowerShell7 update: Write the configuration failure before returning the approved failure code.
+    Write-Output "ERROR: ${BaseLocalConfig}\Environment.cfg not setup"
+    exit 1
 }
 
 # Define which service-account is used, this is set in Set-Configuration.ps1
@@ -45,8 +40,9 @@ if (Test-Path -Path "${BaseLocalConfig}\ServiceOwner.cfg") {
     Set-Variable -Name ConfRUNUSER -Value (Get-Content -Path ${BaseLocalConfig}\ServiceOwner.cfg)
     $ConfRUNUSER = $ConfRUNUSER.Trim()
 } else {
-    Write-Host "ERROR: ${BaseLocalConfig}\ServiceOwner.cfg not setup"
-    return $false
+    # PowerShell7 update: Write the configuration failure before returning the approved failure code.
+    Write-Output "ERROR: ${BaseLocalConfig}\ServiceOwner.cfg not setup"
+    exit 1
 }
 
 # Check the directory of the script used to run the Import-Module, also allow invocation from command line.
@@ -76,8 +72,9 @@ if ($setReportDir -like "Reports_*" -Or $setReportDir -like "Install" -Or $setRe
     Set-Variable -Name ConfLogFile      -Value "${ConfDirLogs}\Log_${DirName}_${ReportName}.log"
     Set-Variable -Name ConfDirFiles     -Value (Join-Path $setReportFullDir "")
 } else {
-    Write-Host "ERROR: Must be run from a ${BaseReportsDir} subdirectory. Current directory: $setReportDir"
-    return $false
+    # PowerShell7 update: Stop before leaving a partially initialised module.
+    Write-Output "ERROR: Must be run from a ${BaseReportsDir} subdirectory. Current directory: $setReportDir"
+    exit 1
 }
 
 # Log Directories
@@ -120,8 +117,9 @@ if ($Environment -match "PROD") {
     Set-Variable -Name ConfADAccessGrp  -Value @("DEV\cyberark-group-1")
 
 } else {
-    Write-Host "ERROR: Environment.cfg must contain one of PROD or DEV"
-    return $false
+    # PowerShell7 update: Invalid unattended configuration returns the approved failure code.
+    Write-Output "ERROR: Environment.cfg must contain one of PROD or DEV"
+    exit 1
 }
 
 # This must handle multiple arguments - Set domain search list, per environment
@@ -145,6 +143,7 @@ Set-Variable -Name ConfSafeScanLogPath               -Value 'D:\Logs\Scan-AllObj
 # Store suffixes separately so callers can apply one normalized PVWA base URL.
 Set-Variable -Name ConfPVWAEndpointSuffixes -Value @{
     Authentication = 'API/auth/Cyberark/Logon/'
+    Logoff         = 'API/auth/Logoff/'
     Accounts       = 'API/Accounts/'
     Users          = 'API/Users?ExtendedDetails=true'
     Safes          = 'API/Safes/'
@@ -203,6 +202,7 @@ Set-Variable -Name ConfOnboardingRuntime -Value @{
     ConfAccountCredFile     = $null
     ConnectionTimeoutSeconds = 300
     PVWALogonUrl            = $null
+    PVWALogoffUrl           = $null
     PVWAGetSafesUrl         = $null
     PVWAGetUsersUrl         = $null
     PVWAAccountsUrl         = $null

@@ -1,3 +1,4 @@
+# PowerShell7 update: Shared functions use PowerShell 7.6 HTTP and encoding behaviour.
 <#
 .SYNOPSIS
     Provides shared Active Directory and CyberArk onboarding functions.
@@ -10,11 +11,13 @@
 $configurationModulePath = Join-Path -Path $PSScriptRoot -ChildPath 'ConfigModule.psm1'
 
 if (-not (Test-Path -LiteralPath $configurationModulePath -PathType Leaf)) {
-    throw "Configuration module not found: $configurationModulePath"
+    Write-Output "ERROR: Configuration module not found: $configurationModulePath"
+    exit 1
 }
 
 # Import locally so mutable runtime state stays scoped to this function module.
-Import-Module -Name $configurationModulePath -Force -Scope Local -ErrorAction Stop
+# PowerShell7 update: Reuse the caller's configuration module instance and its runtime state.
+Import-Module -Name $configurationModulePath -Scope Local -ErrorAction Stop
 
 # Logging and preference helpers used across the onboarding scripts.
 
@@ -32,48 +35,46 @@ function Set-GlobalPreferences {
     if ($EnableDebug) {
         $Global:DebugPreference = 'Continue'
         $script:InDebug = $true
-        Write-Host "DEBUG: Debug mode enabled globally"
+        Write-Information "DEBUG: Debug mode enabled globally" -InformationAction Continue
     } else {
         $Global:DebugPreference = 'SilentlyContinue'
     }
 
     if ($EnableVerbose) {
         $Global:VerbosePreference = 'Continue'
-        Write-Host "VERBOSE: Verbose mode enabled globally"
+        Write-Information "VERBOSE: Verbose mode enabled globally" -InformationAction Continue
     } else {
         $Global:VerbosePreference = 'SilentlyContinue'
     }
 
-    # Autosys has no console attached, so Write-Warning/-Information/-Debug/-Progress
-    # would otherwise fail trying to write to a stream nothing is reading.
-    if ($isAutosys) {
-        Write-Host "Autosys detected: $isAutosys"
-        $WarningPreference     = 'SilentlyContinue'
-        $InformationPreference = 'SilentlyContinue'
-        $VerbosePreference     = 'SilentlyContinue'
-        $DebugPreference       = 'SilentlyContinue'
-        $ProgressPreference    = 'SilentlyContinue'
-        [Console]::Out.Flush()
-    } else {
-        $Global:ConfirmPreference = 'None'
+    # PowerShell7 update: AutoSys has no console, so use process-wide noninteractive preferences.
+    $Global:ConfirmPreference = 'None'
+    if ($IsAutosys) {
+        Write-Information "AutoSys detected: $IsAutosys" -InformationAction Continue
+        $Global:WarningPreference     = 'SilentlyContinue'
+        $Global:InformationPreference = 'SilentlyContinue'
+        $Global:VerbosePreference     = 'SilentlyContinue'
+        $Global:DebugPreference       = 'SilentlyContinue'
+        $Global:ProgressPreference    = 'SilentlyContinue'
     }
 }
 
 # Writes the log file's start-of-run header (called once at script startup).
 function LogStartScript {
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    Write-Output ("=" * 80)
-    Write-Output "INFO: Script started at $timestamp"
+    # PowerShell7 update: Use the information stream so log text cannot contaminate returned API data.
+    Write-Information ("=" * 80) -InformationAction Continue
+    Write-Information "INFO: Script started at $timestamp" -InformationAction Continue
 
     Write-Debug "ReportName: $ReportName `nScriptInfo: $ScriptInfo `nsetReportDir: $setReportDir `nConfDirLogs:  " +
         "$ConfDirLogs `nConfLogFile: $ConfLogFile `nConfFileDirs:  $ConfDirFiles"
 
     if ($ConfLogFile) {
-        Write-Output "INFO: Logfile written to $ConfLogFile"
+        Write-Information "INFO: Logfile written to $ConfLogFile" -InformationAction Continue
         Add-Content -Path $ConfLogFile -Value ("=" * 80) -ErrorAction SilentlyContinue
         Add-Content -Path $ConfLogFile -Value "Script started at $timestamp" -ErrorAction SilentlyContinue
     } else {
-        Write-Output "ERROR: Unable to write to logfile ($ConfLogFile)"
+        Write-Information "ERROR: Unable to write to logfile ($ConfLogFile)" -InformationAction Continue
     }
 }
 
@@ -87,13 +88,14 @@ function LogOutput {
 
     $check = $false
     if ($Message -eq "" -or $Message.StartsWith("`n")) {
-        Write-Output ""; $check = $true
+        # PowerShell7 update: Keep operational logging off the success stream.
+        Write-Information "" -InformationAction Continue; $check = $true
     }
     if ($Message -like "*====*") {
-        Write-Output ("=" * 80); $check = $true
+        Write-Information ("=" * 80) -InformationAction Continue; $check = $true
     }
     if ($check -eq $false) {
-        Write-Output "INFO: $Message"
+        Write-Information "INFO: $Message" -InformationAction Continue
         if ($ConfLogFile) {
             Add-Content -Path $ConfLogFile -Value "INFO: $Message" -ErrorAction SilentlyContinue
         }
@@ -106,7 +108,8 @@ function LogError {
         [string]$Message
     )
 
-    Write-Output "ERROR: $Message"
+    # PowerShell7 update: Keep errors visible to AutoSys without mixing them into returned objects.
+    Write-Information "ERROR: $Message" -InformationAction Continue
     if ($ConfLogFile) {
         Add-Content -Path $ConfLogFile -Value "ERROR: $Message" -ErrorAction SilentlyContinue
     }
@@ -122,7 +125,8 @@ function LogWarn {
     if (-not (Test-Path Variable:Global:LogWarnCount)) { $Global:LogWarnCount = 0 }
     $Global:LogWarnCount++
 
-    [Console]::Out.WriteLine("WARN: $Message")
+    # PowerShell7 update: Use a redirectable non-success stream because AutoSys has no console object.
+    Write-Information "WARN: $Message" -InformationAction Continue
     if ($ConfLogFile) {
         Add-Content -Path $ConfLogFile -Value "WARN: $Message" -ErrorAction SilentlyContinue
     }
@@ -136,7 +140,8 @@ function LogDebug {
     )
 
     if ($script:InDebug) {
-        Write-Host "DEBUG: $Message"
+        # PowerShell7 update: Write to a redirectable non-success stream for unattended execution.
+        Write-Information "DEBUG: $Message" -InformationAction Continue
         if ($ConfLogFile) {
             Add-Content -Path $ConfLogFile -Value "DEBUG: $Message" -ErrorAction SilentlyContinue
         }
@@ -188,7 +193,7 @@ function Initialize-CybOnboardingContext {
     # Reject unknown keys so configuration errors fail before any API request.
     foreach ($entry in $Configuration.GetEnumerator()) {
         if (-not $ConfOnboardingRuntime.ContainsKey($entry.Key)) {
-            throw "Unsupported onboarding context value: $($entry.Key)"
+            Write-Error "Unsupported onboarding context value: $($entry.Key)" -ErrorAction Stop
         }
 
         $ConfOnboardingRuntime[$entry.Key] = $entry.Value
@@ -211,7 +216,7 @@ function Escape-LDAPFilter {
 
 # Resolves a group name to its distinguishedName in one domain, trying a direct
 # identity lookup first and falling back to a samAccountName/CN search. Returns
-# $null (not a throw) when the group can't be found, so callers can just skip it.
+# $null rather than a terminating error when the group cannot be found, so callers can skip it.
 function Resolve-GroupDN {
   param([string]$Group,[string]$Domain,[System.Management.Automation.PSCredential]$Cred)
   $common = @{ Server = $Domain }
@@ -269,6 +274,53 @@ $script:PVWAPermanentPatterns = @(
 $script:PVWAMaxAttempts = 3
 $script:PVWARetryDelaySeconds = 10
 $script:SafeListingFailedPageCount = 0
+$script:LastPVWAResponseMetadata = $null
+
+# PowerShell7 update: Walk the complete exception chain because HttpClient wraps transport failures.
+function Get-PVWAExceptionDetail {
+    param([Parameter(Mandatory)][System.Exception]$Exception)
+
+    $details = [System.Collections.Generic.List[string]]::new()
+    $current = $Exception
+    while ($null -ne $current) {
+        [void]$details.Add("$($current.GetType().FullName): $($current.Message)")
+        $current = $current.InnerException
+    }
+    return $details -join ' -> '
+}
+
+# PowerShell7 update: Identify the specific transport error eligible for one login-and-retry recovery.
+function Test-PVWAConnectionClosedError {
+    param([Parameter(Mandatory)][System.Management.Automation.ErrorRecord]$ErrorRecord)
+
+    $detail = Get-PVWAExceptionDetail -Exception $ErrorRecord.Exception
+    return $detail -match 'underlying connection was closed|unexpected error occurred on a send|connection.*(closed|reset)|response ended prematurely'
+}
+
+# PowerShell7 update: Report response shape without exposing valid account JSON or session tokens.
+function Get-PVWAResponseDiagnostic {
+    param([AllowNull()][string]$Content)
+
+    $metadata = if ($script:LastPVWAResponseMetadata) {
+        "Status=$($script:LastPVWAResponseMetadata.StatusCode); ContentType=$($script:LastPVWAResponseMetadata.ContentType); ContentLength=$($script:LastPVWAResponseMetadata.ContentLength); Protocol=$($script:LastPVWAResponseMetadata.ProtocolVersion)"
+    } else {
+        'Response metadata unavailable'
+    }
+
+    if ([string]::IsNullOrWhiteSpace($Content)) { return "$metadata; Body=empty" }
+    if ($script:LastPVWAResponseMetadata.ContentType -match 'json') {
+        return "$metadata; Body=JSON body suppressed"
+    }
+    $trimmed = $Content.TrimStart()
+    if ($trimmed.StartsWith('{') -or $trimmed.StartsWith('[')) {
+        return "$metadata; Body=JSON-like body suppressed"
+    }
+
+    $preview = ($trimmed -replace '[\r\n\t]+', ' ')
+    $preview = $preview.Substring(0, [Math]::Min(160, $preview.Length))
+    $preview = $preview -replace '(?i)(authorization|password|token)\s*[:=]\s*\S+', '$1=[redacted]'
+    return "$metadata; NonJsonPreview=$preview"
+}
 
 function Test-PVWATransientError {
     param(
@@ -284,7 +336,7 @@ function Test-PVWATransientError {
     # Treat 401 as transient because it normally means the shared token expired.
     if ($StatusCode -in @(401, 429, 500, 502, 503, 504)) { return $true }
 
-    $msg = $ErrorRecord.Exception.Message
+    $msg = Get-PVWAExceptionDetail -Exception $ErrorRecord.Exception
 
     foreach ($pattern in $script:PVWAPermanentPatterns) {
         if ($msg -match $pattern) { return $false }
@@ -318,14 +370,14 @@ function Resolve-PVWANextLink {
     if ($NextLink -match '^[a-zA-Z][a-zA-Z0-9+.-]*://') {
         [Uri]$absoluteUri = $null
         if (-not [Uri]::TryCreate($NextLink, [UriKind]::Absolute, [ref]$absoluteUri)) {
-            throw "PVWA nextLink is not a valid absolute URI: $NextLink"
+            Write-Error "PVWA nextLink is not a valid absolute URI: $NextLink" -ErrorAction Stop
         }
         if ($absoluteUri.Scheme -notin @('http', 'https')) {
-            throw "PVWA nextLink uses an unsupported URI scheme: $NextLink"
+            Write-Error "PVWA nextLink uses an unsupported URI scheme: $NextLink" -ErrorAction Stop
         }
         if (-not $absoluteUri.Scheme.Equals($baseUri.Scheme, [StringComparison]::OrdinalIgnoreCase) -or
             -not $absoluteUri.Authority.Equals($baseUri.Authority, [StringComparison]::OrdinalIgnoreCase)) {
-            throw "PVWA nextLink points outside the configured PVWA host: $NextLink"
+            Write-Error "PVWA nextLink points outside the configured PVWA host: $NextLink" -ErrorAction Stop
         }
         return $absoluteUri.AbsoluteUri
     }
@@ -363,30 +415,44 @@ function Invoke-PVWARestMethod {
         [string]$Body = $null,
         [int]$TimeoutSec = 300,
         [ValidateRange(1, 10)]
-        [int]$MaxAttempts = $script:PVWAMaxAttempts
+        [int]$MaxAttempts = $script:PVWAMaxAttempts,
+        [switch]$ReauthenticateOnConnectionClosed
     )
 
     $attempt = 0
     $lastError = $null
+    $connectionRecoveryUsed = $false
+
+    if (-not $Headers.ContainsKey('Accept')) { $Headers['Accept'] = 'application/json' }
 
     while ($attempt -lt $MaxAttempts) {
         $attempt++
+        $script:LastPVWAResponseMetadata = $null
 
         try {
             LogDebug "Attempt $attempt of $MaxAttempts for: $Uri"
 
+            # PowerShell7 update: Request HTTP/2 with separate connection and operation timeouts.
             $requestParams = @{
-                Uri             = $Uri
-                Method          = $Method
-                Headers         = $Headers
-                ContentType     = "application/json"
-                TimeoutSec      = $TimeoutSec
-                UseBasicParsing = $true
+                Uri                      = $Uri
+                Method                   = $Method
+                Headers                  = $Headers
+                ContentType              = 'application/json'
+                HttpVersion              = [Version]'2.0'
+                ConnectionTimeoutSeconds = $TimeoutSec
+                OperationTimeoutSeconds  = $TimeoutSec
+                ErrorAction              = 'Stop'
             }
 
             if ($Body) { $requestParams.Body = $Body }
 
             $response = Invoke-WebRequest @requestParams
+            $script:LastPVWAResponseMetadata = [PSCustomObject]@{
+                StatusCode      = $response.StatusCode
+                ContentType     = $response.Headers['Content-Type']
+                ContentLength   = $response.Headers['Content-Length']
+                ProtocolVersion = $response.BaseResponse.Version
+            }
             return $response.Content
 
         } catch {
@@ -399,24 +465,56 @@ function Invoke-PVWARestMethod {
                 } catch {
                     # Status code not available
                 }
+                try {
+                    # PowerShell7 update: Capture failed-response headers without reading sensitive bodies.
+                    $script:LastPVWAResponseMetadata = [PSCustomObject]@{
+                        StatusCode      = $statusCode
+                        ContentType     = $_.Exception.Response.Content.Headers.ContentType
+                        ContentLength   = $_.Exception.Response.Content.Headers.ContentLength
+                        ProtocolVersion = $_.Exception.Response.Version
+                    }
+                } catch { }
             }
 
-            LogError "Attempt $attempt failed for $Uri - Status: $statusCode, Error: $($_.Exception.Message)"
+            if ($null -eq $statusCode -and $null -ne $_.Exception.StatusCode) {
+                try { $statusCode = [int]$_.Exception.StatusCode } catch { }
+            }
+
+            $exceptionDetail = Get-PVWAExceptionDetail -Exception $_.Exception
+            LogError "Attempt $attempt failed for $Uri - Status: $statusCode; Error: $exceptionDetail"
 
             $isTransient = Test-PVWATransientError -ErrorRecord $_ -StatusCode $statusCode
 
             if (-not $isTransient) {
                 $failure = [System.Exception]::new(
-                    "Non-retryable error calling ${Uri}: $($_.Exception.Message)",
+                    "Non-retryable error calling ${Uri}: $exceptionDetail",
                     $_.Exception
                 )
                 $failure.Data['PVWATransient'] = $false
-                throw $failure
+                Write-Error -Exception $failure -ErrorAction Stop
             }
 
-            if ($attempt -ge $MaxAttempts) {
-                break
+            # PowerShell7 update: On the first connection-closed error, prove PVWA login and retry this request once.
+            if ($ReauthenticateOnConnectionClosed -and -not $connectionRecoveryUsed -and
+                $Headers.ContainsKey('Authorization') -and (Test-PVWAConnectionClosedError -ErrorRecord $_)) {
+                $connectionRecoveryUsed = $true
+                LogWarn "Connection closed while calling PVWA. Performing one fresh login before retrying the current request."
+                try {
+                    $ConfOnboardingRuntime.AuthTrimmed = Get-AuthToken -SingleAttempt
+                    $Headers['Authorization'] = $ConfOnboardingRuntime.AuthTrimmed
+                    $attempt--
+                    continue
+                } catch {
+                    $failure = [System.Exception]::new(
+                        "Connection recovery login failed calling ${Uri}: $($_.Exception.Message)",
+                        $_.Exception
+                    )
+                    $failure.Data['PVWATransient'] = $true
+                    Write-Error -Exception $failure -ErrorAction Stop
+                }
             }
+
+            if ($attempt -ge $MaxAttempts) { break }
 
             # Re-authenticate on 401 before the next attempt - the retry still
             # counts against the fixed attempt limit like any other transient failure.
@@ -431,7 +529,7 @@ function Invoke-PVWARestMethod {
                         $_.Exception
                     )
                     $failure.Data['PVWATransient'] = $true
-                    throw $failure
+                    Write-Error -Exception $failure -ErrorAction Stop
                 }
             }
 
@@ -446,7 +544,7 @@ function Invoke-PVWARestMethod {
         $lastError.Exception
     )
     $failure.Data['PVWATransient'] = $true
-    throw $failure
+    Write-Error -Exception $failure -ErrorAction Stop
 }
 
 # Logs on to PVWA using the credential file in $ConfOnboardingRuntime.ConfAccountCredFile
@@ -458,19 +556,21 @@ function Get-AuthToken {
     )
 
     if (-not (Test-Path $ConfOnboardingRuntime.ConfAccountCredFile)) {
-        throw "Credential file not found: $($ConfOnboardingRuntime.ConfAccountCredFile)"
+        Write-Error "Credential file not found: $($ConfOnboardingRuntime.ConfAccountCredFile)" -ErrorAction Stop
     }
 
     try {
         $PVWACreds = Import-Clixml -Path $ConfOnboardingRuntime.ConfAccountCredFile
         
         if (-not $PVWACreds -or -not $PVWACreds.UserName -or -not $PVWACreds.Password) {
-            throw "Invalid credentials in file"
+            Write-Error "Invalid credentials in file" -ErrorAction Stop
         }
 
         $AuthBody = @{
-            username = $PVWACreds.UserName
-            password = $PVWACreds.GetNetworkCredential().Password
+            username          = $PVWACreds.UserName
+            password          = $PVWACreds.GetNetworkCredential().Password
+            # PowerShell7 update: Allow independent scheduled processes to hold separate PVWA sessions.
+            concurrentSession = $true
         } | ConvertTo-Json
 
         LogDebug "Authenticating as: $($PVWACreds.UserName)"
@@ -485,7 +585,7 @@ function Get-AuthToken {
             -MaxAttempts $authMaxAttempts
 
         if (-not $authResponse) {
-            throw "Authentication failed - no token received"
+            Write-Error "Authentication failed - no token received" -ErrorAction Stop
         }
 
         $token = $authResponse -replace '"', ''
@@ -494,7 +594,8 @@ function Get-AuthToken {
         return $token
 
     } catch {
-        throw "Authentication failed: $($_.Exception.Message)"
+        $authenticationFailure = [System.Exception]::new("Authentication failed: $($_.Exception.Message)", $_.Exception)
+        Write-Error -Exception $authenticationFailure -ErrorAction Stop
     } finally {
         if ($PVWACreds) {
             $PVWACreds.Password.Dispose()
@@ -545,7 +646,8 @@ function Get-AllSafes {
         try {
             $safesData = $response | ConvertFrom-Json -ErrorAction Stop
         } catch {
-            LogError "Failed to parse safes at offset $offset : $($_.Exception.Message)"
+            # PowerShell7 update: Include HTTP response shape for malformed or non-JSON replies.
+            LogError "Failed to parse safes at offset $offset : $($_.Exception.Message). $(Get-PVWAResponseDiagnostic -Content $response)"
             $failedPageCount++
             $consecutiveFailures++
             $offset += $limit
@@ -595,23 +697,18 @@ function Get-Users {
         $response = Invoke-PVWARestMethod -Uri $ConfOnboardingRuntime.PVWAGetUsersUrl -Headers @{'Authorization' = $ConfOnboardingRuntime.AuthTrimmed } -TimeoutSec $ConfOnboardingRuntime.ConnectionTimeoutSeconds
 
         if ([string]::IsNullOrWhiteSpace($response)) {
-            throw "Failed to retrieve users - API returned no data"
+            Write-Error "Failed to retrieve users - API returned no data" -ErrorAction Stop
         }
 
         try {
             return $response | ConvertFrom-Json -ErrorAction Stop
         } catch {
-            # Safe string truncation - compatible with all PowerShell versions
-            if ($response) {
-                $responsePreview = $response.Substring(0, [Math]::Min(200, $response.Length))
-            } else {
-                $responsePreview = "(null)"
-            }
-            throw "Failed to parse users JSON response: $($_.Exception.Message). Response preview: $responsePreview"
+            # PowerShell7 update: Include safe metadata while suppressing valid JSON content.
+            Write-Error "Failed to parse users JSON response: $($_.Exception.Message). $(Get-PVWAResponseDiagnostic -Content $response)" -ErrorAction Stop
         }
 
     } catch {
-        throw "Failed to retrieve users: $($_.Exception.Message)"
+        Write-Error "Failed to retrieve users: $($_.Exception.Message)" -ErrorAction Stop
     }
 }
 
@@ -630,7 +727,7 @@ function Process-AccountsReport {
         # Fail before the long scan if the report destination is unavailable.
         $outputDirectory = Split-Path $OutputPath -Parent
         if (-not (Test-Path $outputDirectory)) {
-            throw "Output directory does not exist: $outputDirectory"
+            Write-Error "Output directory does not exist: $outputDirectory" -ErrorAction Stop
         }
 
         # Prove write access before reading any Safe.
@@ -638,7 +735,7 @@ function Process-AccountsReport {
             Set-Content -Path $OutputPath -Value "Test write access" -ErrorAction Stop
             Remove-Item -Path $OutputPath -ErrorAction SilentlyContinue
         } catch {
-            throw "Cannot write to output file: $OutputPath. Error: $($_.Exception.Message)"
+            Write-Error "Cannot write to output file: $OutputPath. Error: $($_.Exception.Message)" -ErrorAction Stop
         }
 
         # Safe-scoped buffering keeps the normal path to one append per Safe.
@@ -650,7 +747,7 @@ function Process-AccountsReport {
 
     } catch {
         LogError "Script execution failed: $($_.Exception.Message)"
-        throw
+        Write-Error -ErrorRecord $_ -ErrorAction Stop
     }
 }
 
@@ -671,12 +768,13 @@ function Get-AllAccounts {
     LogOutput "Starting account retrieval (PageSize: $pageSize)"
 
     if (-not $OutputPath) {
-        throw "OutputPath is required for account retrieval"
+        Write-Error "OutputPath is required for account retrieval" -ErrorAction Stop
     }
 
     # Write the fixed header first so a zero-row report is still valid.
     $csvHeader = '"rowid","AccountName","Address","UserName","Platform","ModificationDate","ModifiedBy","LastUsedDate","LastUsedBy","Safe","CreatedBy","CreationDate","CPMStatus","Folder","LastTask","CPMErrorDetails","CPMDisabled","LastFailDate","LastSuccessVerification","DateTimeNow","ResetImmediately","ApplicationID","ConfigItemType","LastReconciledTime","PlatformAccountProperties"'
-    Set-Content -Path $OutputPath -Value $csvHeader -Encoding UTF8
+    # PowerShell7 update: Preserve the report's Windows-compatible UTF-8 BOM.
+    Set-Content -Path $OutputPath -Value $csvHeader -Encoding utf8BOM
 
     # Enumerate first so exclusions happen before account paging begins.
     $allSafes = Get-AllSafes
@@ -749,17 +847,20 @@ function Get-AllAccounts {
         $safeCsvLines = [System.Collections.Generic.List[string]]::new()
 
         while ($uri) {
+            $content = $null
             try {
                 $content = Invoke-PVWARestMethod -Uri $uri `
                     -Headers @{ 'Authorization' = $ConfOnboardingRuntime.AuthTrimmed } `
-                    -TimeoutSec $ConfOnboardingRuntime.ConnectionTimeoutSeconds
+                    -TimeoutSec $ConfOnboardingRuntime.ConnectionTimeoutSeconds `
+                    -ReauthenticateOnConnectionClosed
             } catch {
                 # The request helper records whether an exhausted failure was
                 # transient so only connection-type failures affect the breaker.
                 if ($_.Exception.Data -and $_.Exception.Data.Contains('PVWATransient')) {
                     $safeFailureWasTransient = [bool]$_.Exception.Data['PVWATransient']
                 }
-                $safeErrorMessage = $_.Exception.Message
+                # PowerShell7 update: Distinguish malformed JSON from HTML, empty or truncated responses.
+                $safeErrorMessage = "$($_.Exception.Message). $(Get-PVWAResponseDiagnostic -Content $content)"
                 LogError "Safe '$safeName': failed to retrieve accounts - $safeErrorMessage"
                 $safeFailed = $true
                 break
@@ -850,7 +951,8 @@ function Get-AllAccounts {
         # A successful Safe is written once after its final page. A failed Safe
         # is written here immediately after the failing page so partial rows survive.
         if ($safeCsvLines.Count -gt 0) {
-            Add-Content -Path $OutputPath -Value $safeCsvLines -Encoding UTF8
+            # PowerShell7 update: Preserve the report's Windows-compatible UTF-8 BOM.
+            Add-Content -Path $OutputPath -Value $safeCsvLines -Encoding utf8BOM
             $totalAccounts += $safeCsvLines.Count
         }
 
@@ -921,7 +1023,7 @@ function Get-AllAccounts {
     $ConfOnboardingRuntime.AccountsResult = $totalAccounts
 
     if ($pvwaAvailabilityFailureMessage) {
-        throw "PVWA did not respond to the one-attempt login check: $pvwaAvailabilityFailureMessage"
+        Write-Error "PVWA did not respond to the one-attempt login check: $pvwaAvailabilityFailureMessage" -ErrorAction Stop
     }
 }
 
@@ -944,7 +1046,8 @@ function Process-UsersReport {
             $GetUsersResponse.Users | Select-Object -Property id, username, 
                 @{Name = "GroupMembership"; Expression = { ($_.groupsMembership.groupName -join ';') }},
                 source, userType, suspended |
-                Export-Csv -Path (Join-Path -Path $ConfOnboardingRuntime.ConfDirLogs -ChildPath $TargetFileGroups) -NoTypeInformation -UseCulture -Force
+                # PowerShell7 update: Preserve the existing CSV BOM for downstream Windows tools.
+                Export-Csv -Path (Join-Path -Path $ConfOnboardingRuntime.ConfDirLogs -ChildPath $TargetFileGroups) -NoTypeInformation -UseCulture -Encoding utf8BOM -Force
 
             LogOutput "Users Group Memberships Report written to $(Join-Path -Path $ConfOnboardingRuntime.ConfDirLogs -ChildPath $TargetFileGroups)"
 
@@ -955,17 +1058,18 @@ function Process-UsersReport {
 
             # Keep user attributes separate from the membership feed.
             $GetUsersResponse.Users | Select-Object -Property username, id, source, userType, vaultAuthorization, suspended |
-                Export-Csv -Path (Join-Path -Path $ConfOnboardingRuntime.ConfDirLogs -ChildPath $TargetFileDetails) -NoTypeInformation -UseCulture -Force
+                # PowerShell7 update: Preserve the existing CSV BOM for downstream Windows tools.
+                Export-Csv -Path (Join-Path -Path $ConfOnboardingRuntime.ConfDirLogs -ChildPath $TargetFileDetails) -NoTypeInformation -UseCulture -Encoding utf8BOM -Force
 
             LogOutput "Users Details Report written to $(Join-Path -Path $ConfOnboardingRuntime.ConfDirLogs -ChildPath $TargetFileDetails)"
         } else {
             LogError "Failed to retrieve users data"
-            throw "No users data retrieved from API"
+            Write-Error "No users data retrieved from API" -ErrorAction Stop
         }
 
     } catch {
         LogError "Users report generation failed: $($_.Exception.Message)"
-        throw
+        Write-Error -ErrorRecord $_ -ErrorAction Stop
     }
 }
 
@@ -994,23 +1098,75 @@ function Process-SafesReport {
                 @{Name = 'creationTime'; Expression = { (ConvertDate $_.creationTime).Date } },
                 @{Name = 'lastModificationTime2'; Expression = { (ConvertDate $_.lastModificationTime).Date } },
                 isExpiredMember |
-                Export-Csv -Path (Join-Path -Path $ConfOnboardingRuntime.ConfDirLogs -ChildPath $TargetFile) -NoTypeInformation -UseCulture -Force
+                # PowerShell7 update: Preserve the existing CSV BOM for downstream Windows tools.
+                Export-Csv -Path (Join-Path -Path $ConfOnboardingRuntime.ConfDirLogs -ChildPath $TargetFile) -NoTypeInformation -UseCulture -Encoding utf8BOM -Force
 
             LogOutput "Safes Report written to $(Join-Path -Path $ConfOnboardingRuntime.ConfDirLogs -ChildPath $TargetFile)"
         } else {
             LogError "Failed to retrieve safes data or no safes found"
-            throw "No safes data available"
+            Write-Error "No safes data available" -ErrorAction Stop
         }
 
     } catch {
         LogError "Safes report generation failed: $($_.Exception.Message)"
-        throw
+        Write-Error -ErrorRecord $_ -ErrorAction Stop
+    }
+}
+
+# PowerShell7 update: Use an OS file lock to prevent concurrent runs corrupting fixed report filenames.
+function Enter-CybOnboardingRunLock {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$LockPath)
+
+    $lockDirectory = Split-Path -Path $LockPath -Parent
+    if ($lockDirectory -and -not (Test-Path -LiteralPath $lockDirectory -PathType Container)) {
+        Write-Error "Run-lock directory does not exist: $lockDirectory" -ErrorAction Stop
+    }
+
+    try {
+        return [System.IO.File]::Open(
+            $LockPath,
+            [System.IO.FileMode]::OpenOrCreate,
+            [System.IO.FileAccess]::ReadWrite,
+            [System.IO.FileShare]::None
+        )
+    } catch [System.IO.IOException] {
+        Write-Error "Another Cyb-User-Onboarding run is already active. Lock: $LockPath" -ErrorAction Stop
+    }
+}
+
+# PowerShell7 update: Releasing the handle makes the lock safe after normal or abnormal process exit.
+function Exit-CybOnboardingRunLock {
+    [CmdletBinding()]
+    param([AllowNull()][System.IO.FileStream]$LockHandle)
+
+    if ($null -ne $LockHandle) { $LockHandle.Dispose() }
+}
+
+# PowerShell7 update: Explicitly release the PVWA session created for unattended reporting.
+function Close-PVWASession {
+    [CmdletBinding()]
+    param()
+
+    if ([string]::IsNullOrWhiteSpace([string]$ConfOnboardingRuntime.AuthTrimmed) -or
+        [string]::IsNullOrWhiteSpace([string]$ConfOnboardingRuntime.PVWALogoffUrl)) { return }
+
+    try {
+        $null = Invoke-PVWARestMethod -Uri $ConfOnboardingRuntime.PVWALogoffUrl -Method POST `
+            -Headers @{ Authorization = $ConfOnboardingRuntime.AuthTrimmed } `
+            -TimeoutSec $ConfOnboardingRuntime.ConnectionTimeoutSeconds -MaxAttempts 1
+        LogDebug 'PVWA session logged off.'
+    } catch {
+        LogWarn "PVWA logoff failed: $($_.Exception.Message)"
+    } finally {
+        $ConfOnboardingRuntime.AuthTrimmed = $null
     }
 }
 
 # Forces a garbage collection pass at the end of a run, so a long report doesn't
 # leave a large working set behind for the rest of the scheduled job.
 function Cleanup {
+    Close-PVWASession
     [System.GC]::Collect()
     [System.GC]::WaitForPendingFinalizers()
 }
@@ -1041,19 +1197,21 @@ Function New-Login {
     Process {
         $result = $null
         try {
+            # PowerShell7 update: Request an independent PVWA session for concurrent scheduled processes.
+            $authenticationBody = $Authentication | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+            $authenticationBody.concurrentSession = $true
+            $Authentication = $authenticationBody | ConvertTo-Json -Compress
+
             $result = Invoke-RestMethod -Method Post -Uri $loginCybURI -Headers $headers -ContentType 'application/json; charset=utf-8' `
-                -Body $Authentication -UseBasicParsing -ErrorAction Stop
+                -Body $Authentication -HttpVersion 2.0 `
+                -ConnectionTimeoutSeconds 300 -OperationTimeoutSeconds 300 -ErrorAction Stop
             $Message = "INFO: CyberArk Vault login successful"
             $headers.Add("Authorization", $result)
             $ConfOnboardingRuntime.Header = $headers
         } catch {
-            $body = $_.ErrorDetails.Message
-            if ($null -ne $body) {
-                $Message = "ERROR: Unable to connect to the API - $body"
-            } else {
-                $body = $body -replace '[{"}]' -replace ',', " "
-                $Message = "ERROR: $body"
-            }
+            # PowerShell7 update: Include nested HttpClient errors when no response body exists.
+            $body = if ($_.ErrorDetails.Message) { $_.ErrorDetails.Message } else { Get-PVWAExceptionDetail -Exception $_.Exception }
+            $Message = "ERROR: Unable to connect to the API - $body"
             Start-Sleep -Seconds 1
             return [PSCustomObject]@{ Return = $false; Message = $Message }
         }
@@ -1063,7 +1221,7 @@ Function New-Login {
 
 # Retrieves the /API/Users list using the session already stored in
 # $ConfOnboardingRuntime.Header (set by New-Login). Returns a Success/Data/Message
-# object rather than throwing, so callers can branch on failure without try/catch.
+# object rather than terminating, so callers can branch on failure without try/catch.
 function Get-AllUsers {
     [CmdletBinding()]
     param()
@@ -1075,10 +1233,10 @@ function Get-AllUsers {
 
     try {
         LogDebug "Invoke-RestMethod -Uri `"$($ConfOnboardingRuntime.ConfPVWAURL)/API/Users`" -Method GET"
-        # Increased timeout - large user lists can take a while server-side
+        # PowerShell7 update: Use HTTP/2 and separate connection/operation timeouts.
         $Response = Invoke-RestMethod -Uri "$($ConfOnboardingRuntime.ConfPVWAURL)/API/Users" -Method GET `
-            -Headers $ConfOnboardingRuntime.Header -UseBasicParsing -ContentType 'application/json; charset=utf-8' `
-            -TimeoutSec 300 `
+            -Headers $ConfOnboardingRuntime.Header -ContentType 'application/json; charset=utf-8' `
+            -HttpVersion 2.0 -ConnectionTimeoutSeconds 300 -OperationTimeoutSeconds 300 `
             -Verbose:$false -Debug:$false -ErrorAction Stop
 
         LogDebug "GOT $($Response.Total) users"
@@ -1102,7 +1260,7 @@ function Get-AllUsers {
 # Retrieves one user's full detail record (including group memberships, filtered
 # through $ConfOnboardingRuntime.ExcludedGroupPatterns) with retry on timeouts/5xx
 # and a single automatic re-login on a 401. Returns a Success/Data/Message/GroupCount
-# object rather than throwing, so a per-user failure doesn't need its own try/catch.
+# object rather than terminating, so a per-user failure doesn't need its own try/catch.
 function Get-UserDetails {
     [CmdletBinding()]
     param(
@@ -1122,16 +1280,17 @@ function Get-UserDetails {
     while ($attempt -lt $maxRetries) {
         $attempt++
         try {
+            # PowerShell7 update: Use HTTP/2 and separate connection/operation timeouts.
             $rawResponse = Invoke-WebRequest -Uri $uri -Method GET `
-                -Headers $ConfOnboardingRuntime.Header -UseBasicParsing `
+                -Headers $ConfOnboardingRuntime.Header `
                 -ContentType 'application/json; charset=utf-8' `
-                -TimeoutSec 60 `
+                -HttpVersion 2.0 -ConnectionTimeoutSeconds 60 -OperationTimeoutSeconds 60 `
                 -Verbose:$false -Debug:$false -ErrorAction Stop
 
             # Force UTF-8 decoding for kanji - Invoke-RestMethod can mis-detect encoding
             $bytes = $rawResponse.RawContentStream.ToArray()
             $jsonText = [System.Text.Encoding]::UTF8.GetString($bytes)
-            $Response = $jsonText | ConvertFrom-Json
+            $Response = $jsonText | ConvertFrom-Json -ErrorAction Stop
 
             # Strip exact-name and wildcard groups from the shared exclusion configuration.
             if ($ConfOnboardingRuntime.ExcludedGroupPatterns -and @($Response.groupsMembership).Count -gt 0) {
@@ -1224,6 +1383,9 @@ Export-ModuleMember -Function @(
     'Get-AllAccounts'
     'Process-UsersReport'
     'Process-SafesReport'
+    'Enter-CybOnboardingRunLock'
+    'Exit-CybOnboardingRunLock'
+    'Close-PVWASession'
     'Cleanup'
     'New-Login'
     'Get-AllUsers'
