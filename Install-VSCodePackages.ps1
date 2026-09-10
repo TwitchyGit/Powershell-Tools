@@ -51,15 +51,11 @@ Uses an explicit VS Code command path when VS Code cannot be detected automatica
 
 [CmdletBinding()]
 param(
-    [Parameter()]
-    [string] $PackagePath,
+    [Parameter()][string] $PackagePath,
 
-    [Parameter()]
-    [string] $CodePath,
+    [Parameter()][string] $CodePath,
 
-    [Parameter()]
-    [string] $ModuleInstallPath
-    [string[]] $ModuleInstallPath
+    [Parameter()][string[]] $ModuleInstallPath
 )
 
 Set-StrictMode -Version 2.0
@@ -242,17 +238,8 @@ function Get-PowerShellModulePackage {
 
     $packages = @()
 
-    foreach ($moduleDirectory in Get-ChildItem -LiteralPath $Path -Directory) {
-        $manifestName = $moduleDirectory.Name + '.psd1'
-        $manifests = Get-ChildItem -LiteralPath $moduleDirectory.FullName -Filter $manifestName -File -Recurse
     $manifests = Get-ChildItem -LiteralPath $Path -Filter '*.psd1' -File -Recurse
 
-        foreach ($manifest in $manifests) {
-            try {
-                $manifestData = Import-PowerShellDataFile -Path $manifest.FullName
-                if (-not $manifestData.ContainsKey('ModuleVersion')) {
-                    continue
-                }
     foreach ($manifest in $manifests) {
         try {
             $manifestData = Import-PowerShellDataFile -Path $manifest.FullName
@@ -260,22 +247,12 @@ function Get-PowerShellModulePackage {
                 continue
             }
 
-                $moduleVersion = New-Object -TypeName System.Version -ArgumentList ([string] $manifestData.ModuleVersion)
-                $packages += [pscustomobject]@{
-                    Name            = $moduleDirectory.Name
-                    Version         = $moduleVersion
-                    SourceDirectory = $manifest.Directory.FullName
-                    ManifestName    = $manifest.Name
-                }
             $moduleVersion = New-Object -TypeName System.Version -ArgumentList ([string] $manifestData.ModuleVersion)
             $packages += [pscustomobject]@{
                 Name            = $manifest.BaseName
                 Version         = $moduleVersion
                 SourceDirectory = $manifest.Directory.FullName
                 ManifestName    = $manifest.Name
-            }
-            catch {
-                Write-Warning "Ignoring invalid module manifest '$($manifest.FullName)': $($_.Exception.Message)"
             }
         }
         catch {
@@ -366,18 +343,14 @@ try {
         Write-Error -Message "The package directory does not exist: $resolvedPackagePath"
     }
 
-    if ([string]::IsNullOrWhiteSpace($ModuleInstallPath)) {
     if (($null -eq $ModuleInstallPath) -or ($ModuleInstallPath.Count -eq 0)) {
         $documentsPath = [Environment]::GetFolderPath([Environment+SpecialFolder]::MyDocuments)
-        $powerShellFolder = if ($PSVersionTable.PSEdition -eq 'Desktop') { 'WindowsPowerShell' } else { 'PowerShell' }
-        $ModuleInstallPath = Join-Path -Path $documentsPath -ChildPath (Join-Path -Path $powerShellFolder -ChildPath 'Modules')
         $ModuleInstallPath = @(
             (Join-Path -Path $documentsPath -ChildPath 'WindowsPowerShell\Modules')
             (Join-Path -Path $documentsPath -ChildPath 'PowerShell\Modules')
         )
     }
 
-    $resolvedModuleInstallPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ModuleInstallPath)
     $resolvedModuleInstallPaths = @(
         foreach ($requestedModulePath in $ModuleInstallPath) {
             if (-not [string]::IsNullOrWhiteSpace($requestedModulePath)) {
@@ -391,8 +364,6 @@ try {
     }
 
     $vsixFiles = @(Get-ChildItem -LiteralPath $resolvedPackagePath -Filter '*.vsix' -File -Recurse)
-    $modulePackagePath = Join-Path -Path $resolvedPackagePath -ChildPath 'Modules'
-    $modulePackages = @(Get-PowerShellModulePackage -Path $modulePackagePath)
     $modulePackages = @(Get-PowerShellModulePackage -Path $resolvedPackagePath)
 
     if (($vsixFiles.Count -eq 0) -and ($modulePackages.Count -eq 0)) {
@@ -435,13 +406,8 @@ try {
 
     if ($modulePackages.Count -gt 0) {
         foreach ($resolvedModuleInstallPath in $resolvedModuleInstallPaths) {
-        $null = New-Item -Path $resolvedModuleInstallPath -ItemType Directory -Force
             $null = New-Item -Path $resolvedModuleInstallPath -ItemType Directory -Force
 
-        foreach ($modulePackage in $modulePackages) {
-            try {
-                Write-Information -InformationAction Continue -MessageData "Installing PowerShell module $($modulePackage.Name) $($modulePackage.Version) ..."
-                $results += Install-LocalPowerShellModule -Package $modulePackage -DestinationRoot $resolvedModuleInstallPath
             foreach ($modulePackage in $modulePackages) {
                 try {
                     Write-Information -InformationAction Continue -MessageData "Installing PowerShell module $($modulePackage.Name) $($modulePackage.Version) to $resolvedModuleInstallPath ..."
@@ -452,11 +418,6 @@ try {
                     $failures.Add($message)
                     Write-Error -Message $message -ErrorAction Continue
                 }
-            }
-            catch {
-                $message = "PowerShell module $($modulePackage.Name) could not be installed: $($_.Exception.Message)"
-                $failures.Add($message)
-                Write-Error -Message $message -ErrorAction Continue
             }
         }
     }
