@@ -1,5 +1,36 @@
 #requires -Version 5.1
 
+<#
+.SYNOPSIS
+Downloads the latest VS Code extensions and PowerShell modules into a transfer directory.
+
+.DESCRIPTION
+Run this script only on the internet-connected computer. It downloads packages but does
+not install them. Copy the completed destination directory and Install-VSCodePackages.ps1
+to the offline computer when the download has finished.
+
+The output layout is:
+
+    <DestinationPath>\Extensions\*.vsix
+    <DestinationPath>\Modules\<ModuleName>\<Version>\*
+
+The script is safe to rerun. VSIX files are updated when their content changes and the
+latest stable version of each configured PowerShell module is downloaded.
+
+.PARAMETER DestinationPath
+Directory in which the transferable Extensions and Modules folders will be created.
+The default is a VSCode-Packages directory beside this script.
+
+.EXAMPLE
+    powershell.exe -NoProfile -File .\Save-VSCodePackages.ps1 -DestinationPath 'C:\Transfer\vscode-extensions'
+
+Downloads all configured packages to C:\Transfer\vscode-extensions. Nothing is installed.
+
+.NOTES
+To add another VS Code extension, add its publisher.extension ID to $extensionIds.
+To add another PowerShell Gallery module, add its name to $moduleNames.
+#>
+
 [CmdletBinding()]
 param(
     [Parameter()]
