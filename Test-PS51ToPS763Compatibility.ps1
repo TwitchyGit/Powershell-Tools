@@ -1,95 +1,111 @@
-#requires -Version 5.1
 
-<#
-.SYNOPSIS
-Audits a script for migration from Windows PowerShell 5.1 to PowerShell 7.6.3.
+outputs/Test-PS51ToPS763Compatibility.ps1
+}}, Category, File, Line, Item)
 
-.DESCRIPTION
-The supplied script is parsed but never executed. The auditor launches clean child
-processes for Windows PowerShell 5.1 and PowerShell 7, inventories their environments
-and compares parsing, commands, parameters, modules, profiles and known compatibility
-risks. Literal local dot-sourced scripts and path-based module dependencies are also
-parsed when they can be resolved without executing the supplied code.
+$blockerCount = @($findings | Where-Object { $_.Severity -eq 'BLOCKER' }).Count
+$warningCount = @($findings | Where-Object { $_.Severity -eq 'WARNING' }).Count
+$reviewCount = @($findings | Where-Object { $_.Severity -eq 'REVIEW' }).Count
+$infoCount = @($findings | Where-Object { $_.Severity -eq 'INFO' }).Count
 
-The report separates blocking findings, warnings and items needing a controlled
-runtime test. Static analysis cannot prove every possible runtime path, external
-dependency or dynamically constructed command.
+$conclusion = if ($blockerCount -gt 0) {
+    'The supplied script is **not cleared for PowerShell 7.6.3**. Resolve the blocking findings, then repeat the audit and controlled runtime testing.'
+}
+else {
+    'No statically confirmed blocker was found. This is **not a guarantee of runtime compatibility**; complete the listed manual checks and a controlled PowerShell 7.6.3 test.'
+}
 
-.PARAMETER ScriptPath
-The .ps1, .psm1 or .psd1 file to audit.
-
-.PARAMETER PowerShell7Path
-Path or command name for the target pwsh.exe. The default is pwsh.exe.
-
-.PARAMETER WindowsPowerShellPath
-Path to Windows PowerShell 5.1. The default is the standard Windows location.
-
-.PARAMETER TargetPowerShellVersion
-Exact target version. The default is 7.6.3.
-
-.PARAMETER OutputDirectory
-Directory for the Markdown, JSON and CSV reports. A timestamped directory in the
-current directory is used by default.
-
-.PARAMETER IncludeProfileSessions
-Also starts each shell with its normal profiles enabled. Profiles themselves can run
-arbitrary user code, so this is opt-in. Profile files are inspected statically even
-when this switch is not used.
-
-.PARAMETER AllowTargetVersionMismatch
-Completes the comparison against the installed pwsh version when it is not exactly
-the requested target. The mismatch remains a blocking finding in the report.
-
-.EXAMPLE
-.\Test-PS51ToPS763Compatibility.ps1 -ScriptPath C:\Scripts\Job.ps1
-
-.EXAMPLE
-.\Test-PS51ToPS763Compatibility.ps1 -ScriptPath C:\Scripts\Job.ps1 -IncludeProfileSessions
-
-.NOTES
-Exit code 0 means that the audit completed with no blocking findings. Exit code 1
-means that the audit failed or at least one blocking finding was detected. Warnings
-and manual-review findings do not change the exit code.
-#>
-
-[CmdletBinding()]
-param(
-    [Parameter(Mandatory = $true, Position = 0)]
-    [ValidateScript({ Test-Path -LiteralPath $_ -PathType Leaf })]
-    [string]$ScriptPath,
-
-    [string]$PowerShell7Path = 'pwsh.exe',
-
-    [string]$WindowsPowerShellPath = $(
-        if ($env:WINDIR) {
-            Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
-        }
-        else {
-            'powershell.exe'
-        }
-    ),
-
-    [version]$TargetPowerShellVersion = '7.6.3',
-
-    [string]$OutputDirectory,
-
-    [switch]$IncludeProfileSessions,
-
-    [switch]$AllowTargetVersionMismatch
-)
-
-Set-StrictMode -Version 2.0
-$ErrorActionPreference = 'Stop'
-
-function Resolve-ExecutablePath {
-    param([Parameter(Mandatory = $true)][string]$Path)
-
-    if (Test-Path -LiteralPath $Path -PathType Leaf) {
-        return (Resolve-Path -LiteralPath $Path).ProviderPath
+$moduleComparison = @()
+$allModuleNames = @($ps51ModuleNames + $ps7ModuleNames | Sort-Object -Unique)
+foreach ($moduleName in $allModuleNames) {
+    $sourceModule = Get-HighestModule -Modules @($ps51.AvailableModules) -Name $moduleName
+    $targetModule = Get-HighestModule -Modules @($ps7.AvailableModules) -Name $moduleName
+    $moduleComparison += [pscustomobject][ordered]@{
+        Name                    = $moduleName
+        PS51HighestVersion      = $(if ($sourceModule) { $sourceModule.Version } else { '' })
+        PS51Path                = $(if ($sourceModule) { $sourceModule.Path } else { '' })
+        PS7HighestVersion       = $(if ($targetModule) { $targetModule.Version } else { '' })
+        PS7Path                 = $(if ($targetModule) { $targetModule.Path } else { '' })
+        PS7CompatiblePSEditions = $(if ($targetModule) { ConvertTo-DisplayText $targetModule.CompatiblePSEditions } else { '' })
+        OnlyIn                 = $(
+            if ($sourceModule -and -not $targetModule) { 'Windows PowerShell 5.1' }
+            elseif ($targetModule -and -not $sourceModule) { 'PowerShell 7' }
+            else { '' }
+        )
     }
+}
 
-    $command = Get-Command -Name $Path -CommandType Application -ErrorAction SilentlyContinue |
-        Select-Object -First 1
-    if ($command) {
-        return $command.Source
+$report = [pscustomobject][ordered]@{
+    SchemaVersion          = '1.0'
+    GeneratedAt            = (Get-Date).ToString('o')
+    ScriptPath             = $resolvedScriptPath
+    RequestedTargetVersion = [string]$TargetPowerShellVersion
+    IncludeProfileSessions = [bool]$IncludeProfileSessions
+    Summary                = [pscustomobject][ordered]@{
+        Blockers    = $blockerCount
+        Warnings    = $warningCount
+        Review      = $reviewCount
+        Information = $infoCount
+        Conclusion  = $conclusion
     }
+    WindowsPowerShell      = [pscustomobject][ordered]@{
+        Version                  = $ps51.Version
+        Edition                  = $ps51.Edition
+        Executable               = $ps51.Executable
+        Identity                 = $ps51.Identity
+        Sid                      = $ps51.Sid
+        Bitness                  = $(if ([bool]$ps51.Is64BitProcess) { '64-bit' } else { '32-bit' })
+        LanguageMode             = $ps51.LanguageMode
+        Culture                  = ("{0}/{1}" -f $ps51.Culture, $ps51.UICulture)
+        PSHome                   = $ps51.PSHome
+        ModulePathEntries        = @($ps51.ModulePathEntries)
+        Profiles                 = @($ps51.Profiles)
+        ExecutionPolicies        = @($ps51.ExecutionPolicies)
+        AvailableModuleNameCount = $ps51ModuleNames.Count
+    }
+    PowerShell7            = [pscustomobject][ordered]@{
+        Version                  = $ps7.Version
+        Edition                  = $ps7.Edition
+        Executable               = $ps7.Executable
+        Identity                 = $ps7.Identity
+        Sid                      = $ps7.Sid
+        Bitness                  = $(if ([bool]$ps7.Is64BitProcess) { '64-bit' } else { '32-bit' })
+        LanguageMode             = $ps7.LanguageMode
+        Culture                  = ("{0}/{1}" -f $ps7.Culture, $ps7.UICulture)
+        PSHome                   = $ps7.PSHome
+        ModulePathEntries        = @($ps7.ModulePathEntries)
+        Profiles                 = @($ps7.Profiles)
+        ExecutionPolicies        = @($ps7.ExecutionPolicies)
+        AvailableModuleNameCount = $ps7ModuleNames.Count
+    }
+    ParsedFiles             = @($ps51.ParsedFiles)
+    Findings                = @($findings)
+    ModuleComparison        = @($moduleComparison)
+    RawEvidence             = [pscustomobject][ordered]@{
+        WindowsPowerShellClean = $ps51
+        PowerShell7Clean       = $ps7
+        WindowsPowerShellProfile = $ps51Profile
+        PowerShell7Profile       = $ps7Profile
+    }
+}
+
+$markdownPath = Join-Path $OutputDirectory 'compatibility-report.md'
+$jsonPath = Join-Path $OutputDirectory 'compatibility-audit.json'
+$findingsCsvPath = Join-Path $OutputDirectory 'compatibility-findings.csv'
+$modulesCsvPath = Join-Path $OutputDirectory 'module-comparison.csv'
+
+$report | ConvertTo-Json -Depth 14 | Set-Content -LiteralPath $jsonPath -Encoding UTF8
+$findings | Export-Csv -LiteralPath $findingsCsvPath -NoTypeInformation -Encoding UTF8
+$moduleComparison | Export-Csv -LiteralPath $modulesCsvPath -NoTypeInformation -Encoding UTF8
+Write-MarkdownReport -Path $markdownPath -Report $report
+
+Remove-Item -LiteralPath $ps51ResultPath, $ps7ResultPath, $ps51ProfileResultPath, $ps7ProfileResultPath `
+    -Force -ErrorAction SilentlyContinue
+
+Write-Output ("Compatibility audit complete: {0}" -f $markdownPath)
+Write-Output ("Blocking findings: {0}; warnings: {1}; manual review: {2}; information: {3}" -f
+    $blockerCount, $warningCount, $reviewCount, $infoCount)
+
+if ($blockerCount -gt 0) {
+    exit 1
+}
+exit 0
