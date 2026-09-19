@@ -282,58 +282,77 @@ foreach ($Target in $HostList) {
             }
 
             $PublicKey = (Get-Content "$KeyPath.pub" -Raw).Trim()
+            $ApiUri    = "https://$GitLabHost/api/v4/projects/$EncodedProject/deploy_keys"
 
-            $ApiUri  = "https://$GitLabHost/api/v4/projects/$EncodedProject/deploy_keys"
-            $ApiBody = @{
-                title    = "deploy-$env:COMPUTERNAME"
-                key      = $PublicKey
-                can_push = $AllowPush
-            } | ConvertTo-Json
-
-            $RestParams = @{
-                Method      = "Post"
-                Uri         = $ApiUri
-                Headers     = @{ "PRIVATE-TOKEN" = $PlainApiToken }
-                Body        = $ApiBody
-                ContentType = "application/json"
+            # Check first whether this exact key is already registered, whether from a
+            # prior run or added manually through the GitLab UI, some environments block
+            # the POST below at a proxy or WAF in front of GitLab while GET passes through,
+            # so this is also the only reliable way to detect success in that situation
+            $AlreadyRegistered = $false
+            try {
+                Write-Debug "$env:COMPUTERNAME - GET $ApiUri"
+                $ExistingKeys = Invoke-RestMethod -Method Get -Uri $ApiUri `
+                    -Headers @{ "PRIVATE-TOKEN" = $PlainApiToken }
+                $AlreadyRegistered = [bool]($ExistingKeys | Where-Object { $_.key.Trim() -eq $PublicKey })
+            } catch {
+                Write-Debug "$env:COMPUTERNAME - Could not list existing deploy keys: $($_.Exception.Message)"
             }
 
-            Write-Debug "$env:COMPUTERNAME - POST $ApiUri"
-            Write-Debug "$env:COMPUTERNAME - Body: $ApiBody"
+            if ($AlreadyRegistered) {
+                Write-Output "INFO: $env:COMPUTERNAME - Deploy key already registered, continuing"
+            } else {
+                $ApiBody = @{
+                    title    = "deploy-$env:COMPUTERNAME"
+                    key      = $PublicKey
+                    can_push = $AllowPush
+                } | ConvertTo-Json
 
-            try {
-                $null = Invoke-RestMethod @RestParams
-                Write-Output "INFO: $env:COMPUTERNAME - Deploy key registered on $EncodedProject"
-            } catch {
-                # Invoke-RestMethod only exposes GitLab's actual reason, wrong project path,
-                # no access, wrong host, through the response body, not the generic .NET
-                # exception message, so read that body before deciding what happened
-                $ErrorMessage = $_.Exception.Message
-                if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
-                    $ErrorMessage = $_.ErrorDetails.Message
-                } elseif ($_.Exception.Response) {
-                    try {
-                        $ResponseStream = $_.Exception.Response.GetResponseStream()
-                        $StreamReader   = New-Object System.IO.StreamReader($ResponseStream)
-                        $ResponseBody   = $StreamReader.ReadToEnd()
-                        $StreamReader.Close()
-                        if ($ResponseBody) {
-                            $ErrorMessage = $ResponseBody
-                        }
-                    } catch {
-                        # Response body was not readable, fall back to the exception message above
-                    }
+                $RestParams = @{
+                    Method      = "Post"
+                    Uri         = $ApiUri
+                    Headers     = @{ "PRIVATE-TOKEN" = $PlainApiToken }
+                    Body        = $ApiBody
+                    ContentType = "application/json"
                 }
 
-                $AlreadyRegistered = $ErrorMessage -match "fingerprint.*taken"
-                if ($AlreadyRegistered) {
-                    Write-Output "INFO: $env:COMPUTERNAME - Deploy key already registered, continuing"
-                } else {
-                    Write-Warning "$env:COMPUTERNAME - Deploy key registration failed: $ErrorMessage"
-                    Write-Warning ("$env:COMPUTERNAME - A 404 here usually means the project path is " +
-                        "wrong, the token cannot see this project, or -GitLabHost points at the wrong " +
-                        "instance, GitLab returns 404 for all three rather than distinguishing them.")
-                    return $false
+                Write-Debug "$env:COMPUTERNAME - POST $ApiUri"
+                Write-Debug "$env:COMPUTERNAME - Body: $ApiBody"
+
+                try {
+                    $null = Invoke-RestMethod @RestParams
+                    Write-Output "INFO: $env:COMPUTERNAME - Deploy key registered on $EncodedProject"
+                } catch {
+                    # Invoke-RestMethod only exposes GitLab's actual reason, wrong project
+                    # path, no access, wrong host, through the response body, not the
+                    # generic .NET exception message, so read that body before deciding
+                    $ErrorMessage = $_.Exception.Message
+                    if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
+                        $ErrorMessage = $_.ErrorDetails.Message
+                    } elseif ($_.Exception.Response) {
+                        try {
+                            $ResponseStream = $_.Exception.Response.GetResponseStream()
+                            $StreamReader   = New-Object System.IO.StreamReader($ResponseStream)
+                            $ResponseBody   = $StreamReader.ReadToEnd()
+                            $StreamReader.Close()
+                            if ($ResponseBody) {
+                                $ErrorMessage = $ResponseBody
+                            }
+                        } catch {
+                            # Response body was not readable, fall back to the message above
+                        }
+                    }
+
+                    if ($ErrorMessage -match "fingerprint.*taken") {
+                        Write-Output "INFO: $env:COMPUTERNAME - Deploy key already registered, continuing"
+                    } else {
+                        Write-Warning "$env:COMPUTERNAME - Deploy key registration failed: $ErrorMessage"
+                        Write-Warning ("$env:COMPUTERNAME - If GET succeeds but POST does not, something " +
+                            "in front of GitLab is likely blocking the create request specifically. Add " +
+                            "the key manually under Project > Settings > Repository > Deploy Keys, using " +
+                            "the public key at ${KeyPath}.pub, then re-run this script, it will detect " +
+                            "the key already being present and continue from there.")
+                        return $false
+                    }
                 }
             }
 
