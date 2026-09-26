@@ -1,3 +1,13 @@
+<#
+.SYNOPSIS
+Shows explicit value conversion.
+
+.DESCRIPTION
+The script reports converted values and resulting type names.
+
+.NOTES
+This script is training material. It uses local sample data unless a caller supplies another path.
+#>
 [CmdletBinding()]
 param()
 
@@ -7,9 +17,11 @@ try {
     [datetime]$Date = '2026-09-22'
 
     [pscustomobject]@{
+        Stage = 'TypeCasting'
         Count = $Count
         CountType = $Count.GetType().Name
         Date = $Date.ToString('yyyy-MM-dd')
+        DateType = $Date.GetType().Name
     }
 
     exit 0

@@ -1,3 +1,13 @@
+<#
+.SYNOPSIS
+Shows ordered array access by index.
+
+.DESCRIPTION
+The script reports first item, last item and a selected index from local sample data.
+
+.NOTES
+This script is training material. It uses local sample data unless a caller supplies another path.
+#>
 [CmdletBinding()]
 param()
 
@@ -10,9 +20,12 @@ try {
     $LastName = $Names[-1]
 
     [pscustomobject]@{
+        Stage = 'ArrayIndexing'
         First = $FirstName
         Last = $LastName
         Count = $Names.Count
+        TargetIndex = 1
+        TargetValue = $Names[1]
     }
 
     exit 0

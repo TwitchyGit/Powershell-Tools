@@ -1,3 +1,13 @@
+<#
+.SYNOPSIS
+Shows script-scoped state.
+
+.DESCRIPTION
+The script reports a counter shared by functions inside this file.
+
+.NOTES
+This script is training material. It uses local sample data unless a caller supplies another path.
+#>
 [CmdletBinding()]
 param()
 
@@ -14,7 +24,11 @@ function AddCourseCount {
 try {
     AddCourseCount
     AddCourseCount
-    $script:Counter
+    [pscustomobject]@{
+        Stage = 'ScriptScope'
+        Counter = $script:Counter
+        Scope = 'Script'
+    }
 
     exit 0
 } catch {

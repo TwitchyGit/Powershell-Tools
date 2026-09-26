@@ -1,3 +1,13 @@
+<#
+.SYNOPSIS
+Shows a basic PowerShell class.
+
+.DESCRIPTION
+The script creates a typed training object and reports method output from local sample data.
+
+.NOTES
+This script is training material. It uses local sample data unless a caller supplies another path.
+#>
 [CmdletBinding()]
 param()
 
@@ -18,7 +28,12 @@ class CourseItem {
 
 try {
     $Item = [CourseItem]::new('Pipeline', 2)
-    $Item.Describe()
+    [pscustomobject]@{
+        Stage = 'ClassBasics'
+        TypeName = $Item.GetType().Name
+        Description = $Item.Describe()
+        LevelIsValid = $Item.Level -gt 0
+    }
 
     exit 0
 } catch {

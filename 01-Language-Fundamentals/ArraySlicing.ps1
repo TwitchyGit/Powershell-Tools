@@ -1,3 +1,13 @@
+<#
+.SYNOPSIS
+Shows array slicing with range indexes.
+
+.DESCRIPTION
+The script reports middle items, reversed items and a final page from local sample data.
+
+.NOTES
+This script is training material. It uses local sample data unless a caller supplies another path.
+#>
 [CmdletBinding()]
 param()
 
@@ -10,8 +20,11 @@ try {
     $Reverse = $Numbers[3..1]
 
     [pscustomobject]@{
+        Stage = 'ArraySlicing'
+        SourceCount = $Numbers.Count
         Middle = $Middle -join ', '
         Reverse = $Reverse -join ', '
+        FinalPage = ($Numbers[4..4] -join ', ')
     }
 
     exit 0
