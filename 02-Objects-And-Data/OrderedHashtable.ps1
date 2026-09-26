@@ -1,3 +1,13 @@
+<#
+.SYNOPSIS
+Shows ordered property output.
+
+.DESCRIPTION
+The script reports insertion order and an object created from ordered data.
+
+.NOTES
+This script is training material. It uses local sample data unless a caller supplies another path.
+#>
 [CmdletBinding()]
 param()
 
@@ -9,7 +19,11 @@ try {
         Topic = 'Computation'
     }
 
-    [pscustomobject]$Record
+    [pscustomobject]@{
+        Stage = 'OrderedHashtable'
+        PropertyOrder = $Record.Keys
+        Record = [pscustomobject]$Record
+    }
     exit 0
 } catch {
     Write-Error -Message $_.Exception.Message

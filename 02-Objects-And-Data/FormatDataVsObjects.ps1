@@ -1,3 +1,13 @@
+<#
+.SYNOPSIS
+Shows the boundary between data and display formatting.
+
+.DESCRIPTION
+The script reports object output type and formatting instruction type.
+
+.NOTES
+This script is training material. It uses local sample data unless a caller supplies another path.
+#>
 [CmdletBinding()]
 param()
 
@@ -8,8 +18,11 @@ try {
     $Formatted = $Object | Format-Table -Property Name
 
     [pscustomobject]@{
+        Stage = 'FormatBoundary'
         SelectedType = $Selected.GetType().Name
         FormattedType = $Formatted[0].GetType().Name
+        SelectedStillHasName = $null -ne $Selected.PSObject.Properties['Name']
+        FormattedIsDisplayInstruction = $Formatted[0].GetType().Name -like 'Format*'
     }
 
     exit 0

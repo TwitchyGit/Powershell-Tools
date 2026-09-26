@@ -74,7 +74,7 @@ PARSING LOGIC
 5.  Output (Write-Psd1Node itself):
      - Scalar rows at the same nesting level are aligned on "=" using
        the widest key name at that level.
-     - Uses Write-Output only (no Write-Host), so the result is
+     - Uses pipeline output only, so the result is
        redirectable/pipeable.
 
 ================================================================================
@@ -202,7 +202,8 @@ function Get-Psd1Data {
     try {
         return Import-PowerShellDataFile -Path $Path -ErrorAction Stop
     } catch {
-        Write-Warning -Message "Import-PowerShellDataFile could not read '$Path' directly ($($_.Exception.Message)). Falling back to safe parse."
+        $WarningMessage = "Import-PowerShellDataFile could not read '$Path' directly ($($_.Exception.Message))."
+        Write-Warning -Message "$WarningMessage Falling back to safe parse."
         return ConvertFrom-Psd1Ast -Path $Path
     }
 }
@@ -230,7 +231,8 @@ function Test-Psd1Nested {
     if ($Value -is [System.Collections.IDictionary]) {
         return $true
     }
-    if (($Value -is [array] -or $Value -is [System.Collections.IList]) -and (Test-Psd1ArrayHasHashtable -Value $Value)) {
+    $IsArrayLike = $Value -is [array] -or $Value -is [System.Collections.IList]
+    if ($IsArrayLike -and (Test-Psd1ArrayHasHashtable -Value $Value)) {
         return $true
     }
     return $false
@@ -278,7 +280,8 @@ function Get-Psd1LeafCount {
         return $count
     }
 
-    if (($Value -is [array] -or $Value -is [System.Collections.IList]) -and (Test-Psd1ArrayHasHashtable -Value $Value)) {
+    $IsArrayLike = $Value -is [array] -or $Value -is [System.Collections.IList]
+    if ($IsArrayLike -and (Test-Psd1ArrayHasHashtable -Value $Value)) {
         $count = 0
         foreach ($item in $Value) {
             $count += (Get-Psd1LeafCount -Value $item)
@@ -316,7 +319,8 @@ function Write-Psd1Node {
             continue
         }
 
-        if (($value -is [array] -or $value -is [System.Collections.IList]) -and (Test-Psd1ArrayHasHashtable -Value $value)) {
+        $IsArrayLike = $value -is [array] -or $value -is [System.Collections.IList]
+        if ($IsArrayLike -and (Test-Psd1ArrayHasHashtable -Value $value)) {
             Write-Output "$indent$key"
             Write-Output "$indent$('-' * $key.Length)"
             $index = 0
@@ -355,7 +359,8 @@ function Show-Psd1Summary {
     Write-Psd1Node -Data $Data -Depth 0
 
     Write-Output ('=' * 72)
-    Write-Output "  Total top-level keys: $($Data.Keys.Count)   |   Total leaf values: $(Get-Psd1LeafCount -Value $Data)"
+    $LeafCount = Get-Psd1LeafCount -Value $Data
+    Write-Output "  Total top-level keys: $($Data.Keys.Count)   |   Total leaf values: $LeafCount"
     Write-Output ('=' * 72)
 }
 

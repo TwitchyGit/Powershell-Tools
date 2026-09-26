@@ -1,3 +1,13 @@
+<#
+.SYNOPSIS
+Shows selected property wrappers and expanded values.
+
+.DESCRIPTION
+The script reports output type differences from local sample data.
+
+.NOTES
+This script is training material. It uses local sample data unless a caller supplies another path.
+#>
 [CmdletBinding()]
 param()
 
@@ -8,8 +18,10 @@ try {
     $Expanded = $Object | Select-Object -ExpandProperty Name
 
     [pscustomobject]@{
+        Stage = 'SelectVsExpand'
         WrappedType = $Wrapped.GetType().Name
         ExpandedType = $Expanded.GetType().Name
+        WrappedProperties = $Wrapped.PSObject.Properties.Name
         Expanded = $Expanded
     }
 

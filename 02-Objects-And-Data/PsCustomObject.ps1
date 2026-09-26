@@ -1,3 +1,13 @@
+<#
+.SYNOPSIS
+Shows custom object report rows.
+
+.DESCRIPTION
+The script reports property count and selected report fields.
+
+.NOTES
+This script is training material. It uses local sample data unless a caller supplies another path.
+#>
 [CmdletBinding()]
 param()
 
@@ -9,7 +19,11 @@ try {
         Level = 2
     }
 
-    $Item | Select-Object -Property Name, Level
+    [pscustomobject]@{
+        Stage = 'CreateReportRow'
+        PropertyCount = $Item.PSObject.Properties.Count
+        ReportRow = $Item | Select-Object -Property Name, Level
+    }
     exit 0
 } catch {
     Write-Error -Message $_.Exception.Message
