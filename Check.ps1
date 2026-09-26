@@ -9,7 +9,7 @@ try {
         'Deploy-GitRepository.ps1'
         'PSFunctions.psm1'
         'DeploymentFunctions.psm1'
-        'Test-Token.ps1'
+        'Test-DeployKey.ps1'
         'Test-PowershellDataFile.ps1'
         'Check.ps1'
     )
