@@ -1,9 +1,37 @@
 # Git-Deployment-Manager
 
 Deploys, configures and tests the tools listed in `Config\Environment.psd1` on the
-servers assigned to each tool for a given environment. Deployment of each tool's own
-repository happens over one of three methods, set per environment by
-`Environments.<Env>.SourceMethod`: `Git` (the default when unset), `ZipFile`, or `WGET`.
+servers assigned to each tool for that environment. Each tool's own repository is
+deployed by one of three methods, set per environment by
+`Environments.<Env>.SourceMethod`: `Git` (default if unset), `ZipFile` or `WGET`.
+
+## Users expected workflow
+
+Run PowerShell 7.6 as Administrator for all of the below.
+
+First time on a host:
+
+1. `Install\Test-PowershellDataFile.ps1` - validates `Config\Environment.psd1` and
+   prints every environment it defines, with its tools and hosts. Use this to confirm
+   which `-Env` value to use and which tools it will deploy.
+2. `Install\Check.ps1 -Env <environment>` - pre-flight check scoped to that one
+   environment: required tooling, WinRM to its hosts, deploy key folder access.
+
+Each time a tool needs deploying:
+
+1. `. .\Prepare-Deployment.ps1 -Env <environment>` - dot-sourced (the leading `. `
+   matters). Collects credentials and the GitLab token once for this console session.
+2. `.\Invoke-Deployment.ps1 -Env <environment> -Check` - add `-Tool <name>` to preview
+   one tool only. Reports what would happen, deploys nothing.
+3. `.\Invoke-Deployment.ps1 -Env <environment>` - deploys for real. On an Engineering
+   host, add `-AllowReadWrite` (registers a read-write deploy key instead of read-only)
+   and `-PreserveSelf` (skips self-update, so this run does not overwrite
+   Git-Deployment-Manager's own checkout).
+
+
+## Remaining Section
+
+The remaining sections detail the code architecture
 
 ## Files
 
@@ -26,10 +54,10 @@ Entry scripts (run directly):
 - `Install\Test-DeployKey.ps1` - checks a GitLab API token can list a project's deploy
   keys.
 
-Modules (imported by the entry scripts, not run directly):
+Modules (imported by the entry scripts):
 
 - `Config\PSFunctions.psm1` - logging (`LogOutput`/`LogWarn`/`LogError`/`LogDebug`), the
-  error/warning popup window, `Show-DeploymentHelp`, and shared helpers (GitLab project
+  error/warning popup window, `Show-DeploymentHelp` and shared helpers (GitLab project
   path, default key path, WinRM reachability, REST error parsing).
 - `Config\DeploymentFunctions.psm1` - orchestrator-only helpers: config validation,
   `$Token` resolution, git repository state/branch resolution, running a tool's
@@ -43,45 +71,35 @@ Data:
   `Invoke-Deployment.ps1`, `Prepare-Deployment.ps1`, `Install\Check.ps1` and
   `Install\Test-PowershellDataFile.ps1`.
 
-## Usage
+## Other `Invoke-Deployment.ps1` forms
 
 ```powershell
-.\Invoke-Deployment.ps1 -Env ENG
-.\Invoke-Deployment.ps1 -Env ENG -Tool 'System-Checks'
-.\Invoke-Deployment.ps1 -Env PROD -Check
 .\Invoke-Deployment.ps1 -Env PROD -Force -NoPopup
 .\Invoke-Deployment.ps1
 .\Invoke-Deployment.ps1 -Help
 ```
 
-The last two forms print the help text and exit; neither needs `-Env`.
-
-To collect every credential and the GitLab token once for a console session, dot-source
-`Prepare-Deployment.ps1` first:
-
-```powershell
-. .\Prepare-Deployment.ps1 -Env ENG
-.\Invoke-Deployment.ps1 -Env ENG
-```
+`-Force` and `-NoPopup` are for an unattended/scheduled run. A bare call, or `-Help`,
+prints the help text and exits; neither needs `-Env`.
 
 ## `Invoke-Deployment.ps1` run order
 
 1. Import `Config\PSFunctions.psm1`, `Config\DeploymentFunctions.psm1`,
    `Config\AltSourceFunctions.psm1`.
 2. No `-Env` given, or `-Help` given: print the help text (`Show-DeploymentHelp`) and
-   exit. Nothing else below runs.
+   exit.
 3. Run `Install\Test-PowershellDataFile.ps1`. A non-zero exit code stops the run here.
    Checks every environment in the file, not only `-Env`.
 4. Read `Config\Environment.psd1`.
 5. Confirm this host and script folder are the environment's designated self location
-   (`Environments.<Env>.SelfServer`/`SelfDest`). Not the right host or folder, or `-Env`
-   not found: stop.
+   (`Environments.<Env>.SelfServer`/`SelfDest`). Wrong host or folder, or `-Env` not
+   found: stop.
 6. Read `Environments.<Env>.SourceMethod` once for the rest of the run.
-7. Fill in any of `-AdminUser`/`-ServiceAccount`/`-LDAPTestUser`/`-ApiToken` not passed
-   on the command line from the session's own global variables, if `Prepare-Deployment.ps1`
-   set them earlier. Under `-Check`, `AdminUser`/`ServiceAccount`/`LDAPTestUser` are
-   never filled in this way.
-8. `SourceMethod` is `Git` or unset, `-Check` is not set, and no `-ApiToken` was
+7. Fill in whichever of `-AdminUser`/`-ServiceAccount`/`-LDAPTestUser`/`-ApiToken` was
+   not passed on the command line from the session's own global variables, if
+   `Prepare-Deployment.ps1` set them earlier. Under `-Check`,
+   `AdminUser`/`ServiceAccount`/`LDAPTestUser` are never filled in this way.
+8. `SourceMethod` is `Git` or unset, `-Check` is not set and no `-ApiToken` was
    supplied: prompt for one.
 9. Set up the log file and, unless `-NoPopup` or there is no desktop, the error/warning
    popup window.
@@ -90,30 +108,27 @@ To collect every credential and the GitLab token once for a console session, dot
     - `SourceMethod` is `Git`/unset: read the repository's current state, resolve which
       branch to deploy, clone it into this script's own folder using
       `Setup-GitRepoKeys.ps1` and `Deploy-GitRepository.ps1`, then re-launch this same
-      script from the freshly updated file.
+      script.
     - `SourceMethod` is `ZipFile`/`WGET`: deploy the same way into this script's own
       folder using the matching function in `Config\AltSourceFunctions.psm1`, then
       re-launch.
     - `-Check` is set: report what self-update would do, take no action, do not
       re-launch.
-    - Runs the configuration consistency check on `Config\Environment.psd1` once, here.
+    - Runs the configuration consistency check on `Config\Environment.psd1`.
 11. Build the tool list for `-Env`: `CyberArkAPI` first if present and not excluded by
-    `-Tool`, then every other tool in the file's own order.
+    `-Tool`, then every other tool.
 12. `-Check` is not set: collect whichever of `AdminUser`/`ServiceAccount`/`LDAPTestUser`
     the in-scope tools' `Configure`/`SetCredentials`/`UnitTest` steps actually reference,
     plus one credential per distinct `RunAs` account those steps use.
 13. For each tool, for each of its hosts (`PrimaryServer` first, then each
     `FailoverServer`):
-    - Deploy the tool's repository using `SourceMethod`'s method (or, under `-Check`,
-      report what that method would do).
+    - Deploy the tool's repository using `SourceMethod`'s method, or, under `-Check`,
+      report only.
     - Run `Configure` on this host.
     - This host is `PrimaryServer`: also run `SetCredentials`, then `UnitTest`
       (`RTBSteps` or `CTBSteps`, chosen by the environment's `EnvironmentType`).
 14. Print one summary line per tool, then the total warning/error counts. Exit `1` if
     any tool did not complete every stage or any error was logged; `0` otherwise.
-
-No parallelism anywhere in this sequence: one tool at a time, one host at a time, one
-stage at a time.
 
 ## `Invoke-Deployment.ps1` arguments
 
@@ -122,7 +137,7 @@ stage at a time.
 | `-Env` | Yes (unless `-Help`) | string | Environment name, must match a key under `Environments`. |
 | `-Tool` | No | string[] | Restrict the run to these tool names. |
 | `-Check` | No | switch | Report only; deploy nothing, run no `Configure`/`SetCredentials`/`UnitTest`. |
-| `-Force` | No | switch | For the git path: auto-confirm rather than prompt when the local repository state needs a decision, and auto-pick the resolved default branch rather than prompting when a newer branch exists. |
+| `-Force` | No | switch | For the git path: auto-confirm rather than prompt when the local repository state needs a decision; auto-pick the resolved default branch rather than prompting when a newer branch exists. |
 | `-AdminUser` | No | PSCredential | Vault Administrator account. Prompted for if omitted and a tool in scope needs it. |
 | `-ServiceAccount` | No | PSCredential | OS credential for the environment's `ServiceAccount`. Prompted for if omitted and needed. |
 | `-LDAPTestUser` | No | string | LDAP test account username (plain string, never a password). Prompted for if omitted and needed. |
@@ -137,18 +152,18 @@ stage at a time.
 
 | Parameter | Required | Type | What it does |
 |---|---|---|---|
-| `-Env` | Yes | string | Must match a key under `Environments`. Read to decide whether `LDAPTestUser` is prompted for (skipped when that environment's `EnvironmentType` is `RTB`), and echoed in the summary. Not passed on to `Invoke-Deployment.ps1`. |
+| `-Env` | Yes | string | Must match a key under `Environments`. Read to decide whether `LDAPTestUser` is prompted for (skipped when that environment's `EnvironmentType` is `RTB`) and echoed in the summary. Not passed on to `Invoke-Deployment.ps1`. |
 
 Must be dot-sourced (`. .\Prepare-Deployment.ps1 -Env ENG`), not run directly, or the
 credentials it collects do not survive into the console session.
 
-Prompts in order for `AdminUser`, `ServiceAccount`, `LDAPTestUser` (username first, `Enter`
-to skip; `AdminUser`/`ServiceAccount` then prompt for a password via `Get-Credential`,
+Prompts for `AdminUser`, `ServiceAccount`, `LDAPTestUser` (username first, `Enter` to
+skip; `AdminUser`/`ServiceAccount` then prompt for a password via `Get-Credential`,
 `LDAPTestUser` does not), then requires an `ApiToken`. Then runs, in order:
-`Install\Test-PowershellDataFile.ps1`, `Install\Test-DeployKey.ps1` (only if `SelfRepo`
-can be read from `Config\Environment.psd1`), `Install\Check.ps1 -Quiet -Env <Env>`.
-Prints `Invoke-Deployment.ps1`'s option list, then a `Collected:`/`Skipped:` summary of
-which of the four values ended up set in the session.
+`Install\Test-PowershellDataFile.ps1`, `Install\Test-DeployKey.ps1` (if `SelfRepo` can
+be read from `Config\Environment.psd1`), `Install\Check.ps1 -Quiet -Env <Env>`. Prints
+`Invoke-Deployment.ps1`'s option list, then a `Collected:`/`Skipped:` summary of which
+of the four values ended up set in the session.
 
 ## `Setup-GitRepoKeys.ps1` arguments
 
@@ -184,21 +199,18 @@ default `-KeyPath` is `C:\ProgramData\Git-Deployment-Manager\keys\gitlab_deploy_
 | `-Branch` | Yes | string | Branch or tag to clone. Accepted but unused under `-Check`. |
 | `-KeyPath` | No | string | Private key path on each host. Defaults to the same path `Setup-GitRepoKeys.ps1` derives from `-Repo`. |
 | `-GitLabHost` | No | string | Defaults to `host.company.com`. |
-| `-Check` | No | switch | Read-only: for each host, reports whether `-Dest` is an existing clone, its branch, and which remote branches are ahead of the remote's actual default branch (read via `git ls-remote --symref`). Writes the result to `-CheckOutputPath` as JSON. No wipe, no clone. |
+| `-Check` | No | switch | Read-only: for each host, reports whether `-Dest` is an existing clone, its branch and which remote branches are ahead of the remote's actual default branch (read via `git ls-remote --symref`). Writes the result to `-CheckOutputPath` as JSON. No wipe, no clone. |
 | `-CheckOutputPath` | Required with `-Check` | string | File path for the `-Check` JSON result. |
 
-Expects the deploy key to already exist at `-KeyPath`; does not create one. Fails
-cleanly, per host, if that host has no key there yet. On a successful clone, sets
-`core.sshCommand` in the clone's own git config to the same key, so later git commands
-or an editor on that host pick it up without needing this script's own environment
-variable. Whether the key can push was decided when `Setup-GitRepoKeys.ps1` registered
-it; this script has no equivalent switch.
+Expects the deploy key to already exist at `-KeyPath`. On a successful clone, sets
+`core.sshCommand` in the clone's own git config to the same key. Whether the key can
+push was decided when `Setup-GitRepoKeys.ps1` registered it.
 
 ## `Install\Check.ps1` arguments
 
 | Parameter | Required | Type | What it does |
 |---|---|---|---|
-| `-Env` | Yes | string | Scopes every per-environment check (configuration consistency, WinRM reachability, deploy key folder access) to this one environment. |
+| `-Env` | Yes | string | Scopes each environment check (configuration consistency, WinRM reachability, deploy key folder access) to this environment. |
 | `-Quiet` | No | switch | Suppress per-check `PASS` lines; `FAIL` lines and the summary still print. |
 
 Checks, in order: PowerShell 7.6+ present, running elevated, Windows PowerShell 5.1
@@ -206,9 +218,9 @@ present, `git.exe` reachable, `ssh.exe`/`ssh-keygen.exe` reachable,
 `Config\Environment.psd1` parses (`Install\Test-PowershellDataFile.ps1`),
 `Config\PSFunctions.psm1`/`Config\DeploymentFunctions.psm1` import cleanly, WinRM
 loopback to this host, self-location match for every environment (informational), the
-one environment's configuration consistency, WinRM reachability to every host in that
+environment's configuration consistency, WinRM reachability to every host in the
 environment's `ToolList`, `BUILTIN\Administrators` access on each reachable host's
-deploy-key folder, and that the log directory exists or can be created. Never checks
+deploy-key folder and that the log directory exists or can be created. Never checks
 the GitLab API token itself.
 
 ## `Install\Test-PowershellDataFile.ps1` arguments
@@ -297,7 +309,7 @@ literally; `$true` is a bare switch with no value, e.g. `'-Check' = $true`.
 ### `RunAs`
 
 One value per `Configure`/`SetCredentials`/`UnitTest` stage, covering every step in it:
-either the literal `Administrator`, or a quoted `$Token`, e.g. `'$ServiceAccount'`.
+either the literal `Administrator` or a quoted `$Token`, e.g. `'$ServiceAccount'`.
 
 ### Token resolution
 
@@ -371,7 +383,7 @@ Tools = @{
 - `FailoverServer`: deploys the tool, then runs `Configure` only.
 
 This is per tool per environment, not per host: one host can be primary for one tool,
-failover for another, and hold a different role again under a different `-Env`.
+failover for another and hold a different role again under a different `-Env`.
 
 ## Deploy keys (`SourceMethod` = `Git`)
 
@@ -382,10 +394,7 @@ was passed to `Setup-GitRepoKeys.ps1` for it:
 - `-AllowReadWrite`: a read-write key. The host can commit and push as well as pull.
 
 Both are SSH keys only - there is no HTTPS or token-based path for cloning, so no
-credential sits in a remote URL or a `.git\config` file. Run `Setup-GitRepoKeys.ps1`
-against a host once per repository before the first `Deploy-GitRepository.ps1` call
-there; re-running it later is safe and reuses the existing key. Each repository gets
-its own keypair, even on a host that deploys more than one repository.
+credential sits in a remote URL or a `.git\config` file.
 
 ## Failure handling
 
