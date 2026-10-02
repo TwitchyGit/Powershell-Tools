@@ -1,0 +1,75 @@
+{
+  "Environments": [
+    {
+      "Name": "Test",
+      "AuthoritativeHost": "build-host-01",
+      "LogRoot": ".sample-state/logs/test",
+      "TrustedSourceFingerprint": "SHA256:LOCALTRAININGONLY"
+    }
+  ],
+  "Accounts": [
+    {
+      "Name": "LocalTrainingAccount",
+      "CredentialRequired": false
+    }
+  ],
+  "Tools": [
+    {
+      "Name": "AccountReporter",
+      "Environment": "Test",
+      "Destination": ".sample-state/hosts/{Host}/AccountReporter",
+      "Source": {
+        "Type": "Git",
+        "DefaultBranch": "main",
+        "CurrentBranch": "release",
+        "Branches": [
+          {
+            "Name": "main",
+            "LastActivityUtc": "2026-08-10T09:00:00Z"
+          },
+          {
+            "Name": "release",
+            "LastActivityUtc": "2026-09-01T10:30:00Z"
+          },
+          {
+            "Name": "feature-stage-order",
+            "LastActivityUtc": "2026-09-12T17:45:00Z"
+          }
+        ]
+      },
+      "Hosts": [
+        {
+          "Name": "app-primary-01",
+          "Role": "Primary"
+        },
+        {
+          "Name": "app-standby-01",
+          "Role": "Standby"
+        }
+      ],
+      "Stages": [
+        {
+          "Name": "Configure",
+          "Account": "LocalTrainingAccount",
+          "Steps": [
+            {
+              "Name": "WriteSettings"
+            },
+            {
+              "Name": "CheckPaths"
+            }
+          ]
+        },
+        {
+          "Name": "Verify",
+          "Account": "LocalTrainingAccount",
+          "Steps": [
+            {
+              "Name": "ReadReceipt"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
