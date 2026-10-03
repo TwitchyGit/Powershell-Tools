@@ -1,0 +1,163 @@
+{
+  "Passed": true,
+  "Messages": [
+    {
+      "CreatedAt": "2026-09-30T00:15:02.1814250Z",
+      "Level": "Info",
+      "Environment": "Configuration",
+      "Host": "Local",
+      "Tool": "All",
+      "Stage": "Validation",
+      "Message": "Configuration passed local validation."
+    },
+    {
+      "CreatedAt": "2026-09-30T00:15:02.2002090Z",
+      "Level": "Info",
+      "Environment": "Test",
+      "Host": "app-primary-01",
+      "Tool": "AccountReporter",
+      "Stage": "Source",
+      "Message": "Selected branch release. Current branch still exists, so unattended mode keeps it."
+    },
+    {
+      "CreatedAt": "2026-09-30T00:15:02.2033150Z",
+      "Level": "Info",
+      "Environment": "Test",
+      "Host": "app-primary-01",
+      "Tool": "AccountReporter",
+      "Stage": "Configure",
+      "Message": "Report-only mode would run this step through the shared execution path."
+    },
+    {
+      "CreatedAt": "2026-09-30T00:15:02.2033540Z",
+      "Level": "Info",
+      "Environment": "Test",
+      "Host": "app-primary-01",
+      "Tool": "AccountReporter",
+      "Stage": "Configure",
+      "Message": "Report-only mode would run this step through the shared execution path."
+    },
+    {
+      "CreatedAt": "2026-09-30T00:15:02.2033920Z",
+      "Level": "Info",
+      "Environment": "Test",
+      "Host": "app-primary-01",
+      "Tool": "AccountReporter",
+      "Stage": "Verify",
+      "Message": "Report-only mode would run this step through the shared execution path."
+    },
+    {
+      "CreatedAt": "2026-09-30T00:15:02.2034100Z",
+      "Level": "Info",
+      "Environment": "Test",
+      "Host": "app-standby-01",
+      "Tool": "AccountReporter",
+      "Stage": "Source",
+      "Message": "Selected branch release. Current branch still exists, so unattended mode keeps it."
+    },
+    {
+      "CreatedAt": "2026-09-30T00:15:02.2034520Z",
+      "Level": "Info",
+      "Environment": "Test",
+      "Host": "app-standby-01",
+      "Tool": "AccountReporter",
+      "Stage": "Configure",
+      "Message": "Report-only mode would run this step through the shared execution path."
+    },
+    {
+      "CreatedAt": "2026-09-30T00:15:02.2034780Z",
+      "Level": "Info",
+      "Environment": "Test",
+      "Host": "app-standby-01",
+      "Tool": "AccountReporter",
+      "Stage": "Configure",
+      "Message": "Report-only mode would run this step through the shared execution path."
+    },
+    {
+      "CreatedAt": "2026-09-30T00:15:02.2035070Z",
+      "Level": "Info",
+      "Environment": "Test",
+      "Host": "app-standby-01",
+      "Tool": "AccountReporter",
+      "Stage": "Verify",
+      "Message": "Report-only mode would run this step through the shared execution path."
+    }
+  ],
+  "Decisions": [
+    {
+      "Environment": "Test",
+      "Tool": "AccountReporter",
+      "Action": "KeepCurrentUnattended",
+      "SelectedBranch": "release",
+      "Reason": "Current branch still exists, so unattended mode keeps it."
+    }
+  ],
+  "StageResults": [
+    {
+      "Environment": "Test",
+      "Host": "app-primary-01",
+      "Tool": "AccountReporter",
+      "Stage": "Configure",
+      "Step": "WriteSettings",
+      "Account": "LocalTrainingAccount",
+      "Changed": false,
+      "Passed": true,
+      "Message": "Report-only mode would run this step through the shared execution path."
+    },
+    {
+      "Environment": "Test",
+      "Host": "app-primary-01",
+      "Tool": "AccountReporter",
+      "Stage": "Configure",
+      "Step": "CheckPaths",
+      "Account": "LocalTrainingAccount",
+      "Changed": false,
+      "Passed": true,
+      "Message": "Report-only mode would run this step through the shared execution path."
+    },
+    {
+      "Environment": "Test",
+      "Host": "app-primary-01",
+      "Tool": "AccountReporter",
+      "Stage": "Verify",
+      "Step": "ReadReceipt",
+      "Account": "LocalTrainingAccount",
+      "Changed": false,
+      "Passed": true,
+      "Message": "Report-only mode would run this step through the shared execution path."
+    },
+    {
+      "Environment": "Test",
+      "Host": "app-standby-01",
+      "Tool": "AccountReporter",
+      "Stage": "Configure",
+      "Step": "WriteSettings",
+      "Account": "LocalTrainingAccount",
+      "Changed": false,
+      "Passed": true,
+      "Message": "Report-only mode would run this step through the shared execution path."
+    },
+    {
+      "Environment": "Test",
+      "Host": "app-standby-01",
+      "Tool": "AccountReporter",
+      "Stage": "Configure",
+      "Step": "CheckPaths",
+      "Account": "LocalTrainingAccount",
+      "Changed": false,
+      "Passed": true,
+      "Message": "Report-only mode would run this step through the shared execution path."
+    },
+    {
+      "Environment": "Test",
+      "Host": "app-standby-01",
+      "Tool": "AccountReporter",
+      "Stage": "Verify",
+      "Step": "ReadReceipt",
+      "Account": "LocalTrainingAccount",
+      "Changed": false,
+      "Passed": true,
+      "Message": "Report-only mode would run this step through the shared execution path."
+    }
+  ]
+}

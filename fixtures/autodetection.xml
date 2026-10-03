@@ -1,0 +1,4 @@
+<AutoDetection>
+  <Platform id="WindowsLocal" enabled="true" />
+  <Platform id="UnixTraining" enabled="false" />
+</AutoDetection>

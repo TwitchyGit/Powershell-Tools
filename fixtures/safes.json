@@ -1,0 +1,14 @@
+[
+  {
+    "SafeName": "APP-TRAINING-DEV",
+    "Owner": "Platform Team",
+    "AccountCount": 12,
+    "LastBackup": "2026-09-01"
+  },
+  {
+    "SafeName": "APP-TRAINING-PROD",
+    "Owner": "CyberArk Operations",
+    "AccountCount": 42,
+    "LastBackup": "2026-09-20"
+  }
+]

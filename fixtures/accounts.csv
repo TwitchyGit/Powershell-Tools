@@ -1,0 +1,4 @@
+SamAccountName,Enabled,Locked,Owner,LastLogonDays
+asmith,True,False,Identity Operations,12
+bjones,False,False,Helpdesk,90
+cnguyen,True,True,Platform Team,1

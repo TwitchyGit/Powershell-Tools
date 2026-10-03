@@ -1,0 +1,6 @@
+{
+  "PackageName": "TrainingPackage",
+  "Version": "1.0.0",
+  "Target": "LocalTraining",
+  "RequiresApproval": true
+}

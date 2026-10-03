@@ -1,0 +1,31 @@
+<ADConfiguration ADReloadInterval="60" ADPerformAutomaticDetectionTask="Yes">
+  <ADProcesses>
+    <ADProcess ADProcessName="Training Windows Detection" ADProcessActive="Yes" ADProcessID="1001">
+      <ADMachineDetection>
+        <ADLDAPDetection ADLDAPDebug="No">
+          <ADLDAPConnectionDetails
+            ADLDAPConnectionAccountSafe="APP-TRAINING-DEV"
+            ADLDAPConnectionAccountObject="svc-ldap-training" />
+          <ADMachineSets>
+            <ADMachineSet
+              ADMachineWorkspaceSafe="APP-TRAINING-DEV"
+              ADBaseContext="OU=Servers,DC=example,DC=local"
+              ADQueryFilter="(operatingSystem=*Windows*)"
+              ADIsQueryFilterRecursive="Yes" />
+          </ADMachineSets>
+          <ADMachineDetectionInterval ADMachineDetectionInterval="30" />
+        </ADLDAPDetection>
+      </ADMachineDetection>
+      <ADAccountManagement>
+        <ADNewAccountSettings>
+          <ADLocalAccountTemplate
+            ADLocalAccountTemplateSafe="APP-TRAINING-DEV"
+            ADLocalAccountTemplateObject="WindowsLocalTemplate" />
+        </ADNewAccountSettings>
+      </ADAccountManagement>
+      <ADMachineScan>
+        <ADMachineScanInterval ADMachineScanInterval="1440" />
+      </ADMachineScan>
+    </ADProcess>
+  </ADProcesses>
+</ADConfiguration>
