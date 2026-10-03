@@ -1,18 +1,28 @@
 <#
-Example usage:
+.SYNOPSIS
+    Frees a directory for deletion or deployment by terminating whatever holds its files open,
+    on hosts without handle.exe or openfiles.
 
+.DESCRIPTION
+    Uses the Windows Restart Manager API to find the holders, so handle.exe and openfiles are not needed.
+    Requires Windows and an elevated session.
+
+.EXAMPLE
     Import-Module .\File-Handler.psm1
-
-    # List the processes holding files open under the directory
     Get-DirectoryLockProcess -Path 'D:\Target'
+    Lists the processes holding files open under the directory.
 
-    # Preview, then terminate
+.EXAMPLE
     Stop-DirectoryLockProcess -Path 'D:\Target' -WhatIf
     Stop-DirectoryLockProcess -Path 'D:\Target' -InformationAction Continue
-
-Requires Windows and an elevated session. Uses the Windows Restart Manager API, so no handle.exe or openfiles.
+    Previews the termination, then performs it.
 #>
 
+<#
+.SYNOPSIS
+    Holds the core Windows process names that Stop-DirectoryLockProcess skips,
+    so a holder with one of these names is never terminated.
+#>
 $script:ProtectedProcessNames = @(
     'Idle',
     'System',
@@ -25,6 +35,11 @@ $script:ProtectedProcessNames = @(
     'services'
 )
 
+<#
+.SYNOPSIS
+    Maps the numeric RM_APP_TYPE value from Restart Manager to a readable name,
+    so output and service handling do not depend on raw numbers.
+#>
 $script:AppTypeNames = @{
     0    = 'Unknown'
     1    = 'MainWindow'
@@ -35,6 +50,11 @@ $script:AppTypeNames = @{
     1000 = 'Critical'
 }
 
+<#
+.SYNOPSIS
+    Holds the C# source that Add-Type compiles to call rstrtmgr.dll,
+    because PowerShell has no cmdlet that reports file lockers.
+#>
 $script:RestartManagerSource = @'
 using System;
 using System.Collections.Generic;
@@ -42,6 +62,11 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Text;
 
+/*
+.SYNOPSIS
+    Carries one holder reported by Restart Manager back to PowerShell,
+    with its start time so a reused PID can be detected.
+*/
 public class FileLockInfo {
     public int ProcessId;
     public long StartFileTime;
@@ -50,6 +75,10 @@ public class FileLockInfo {
     public int AppType;
 }
 
+/*
+.SYNOPSIS
+    Wraps the native Restart Manager calls so PowerShell can ask which processes hold a set of files open.
+*/
 public static class RestartManagerApi {
     private const int ERROR_MORE_DATA = 234;
 
@@ -84,6 +113,11 @@ public static class RestartManagerApi {
     [DllImport("rstrtmgr.dll")]
     private static extern int RmEndSession(uint handle);
 
+    /*
+    .SYNOPSIS
+        Returns every process or service using the given files in one call,
+        and always closes the session so no Restart Manager sessions leak.
+    */
     public static List<FileLockInfo> GetLockers(string[] files) {
         uint session;
         var key = new StringBuilder(33);
@@ -121,6 +155,11 @@ public static class RestartManagerApi {
 }
 '@
 
+<#
+.SYNOPSIS
+    Makes the Restart Manager API callable from PowerShell and compiles it once,
+    so repeat calls do not fail on a duplicate type.
+#>
 function Initialize-RestartManager {
     [CmdletBinding()]
     param()
@@ -130,6 +169,11 @@ function Initialize-RestartManager {
     }
 }
 
+<#
+.SYNOPSIS
+    Lets callers warn early, because a non-elevated session cannot see other accounts' processes
+    and returns a holder list that looks complete but is not.
+#>
 function Test-Elevated {
     [CmdletBinding()]
     param()
@@ -139,21 +183,21 @@ function Test-Elevated {
     return $Principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
-function Get-DirectoryLockProcess {
-    <#
-    .SYNOPSIS
-    Lists the processes that hold files open under a directory.
-    .DESCRIPTION
+<#
+.SYNOPSIS
+    Shows what is blocking a directory before anything is terminated, so the holders can be reviewed first.
+.DESCRIPTION
     Enumerates every file under the directory and asks the Windows Restart Manager which processes and services
     use them. A process that only has the directory as its working directory is not reported.
-    .PARAMETER Path
+.PARAMETER Path
     Directory to check. A drive root or share root is refused.
-    .PARAMETER BatchSize
+.PARAMETER BatchSize
     Number of files sent to Restart Manager per query.
-    .OUTPUTS
+.OUTPUTS
     One object per process or service: ProcessId, ProcessName, ExecutablePath, ApplicationType, ServiceName,
     StartFileTime.
-    #>
+#>
+function Get-DirectoryLockProcess {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Path,
@@ -233,30 +277,44 @@ function Get-DirectoryLockProcess {
     return $Lockers | Sort-Object -Property ProcessId
 }
 
-function Stop-DirectoryLockProcess {
-    <#
-    .SYNOPSIS
-    Lists and terminates the processes that hold files open under a directory.
-    .DESCRIPTION
+<#
+.SYNOPSIS
+    Frees a directory for deletion or deployment by terminating whatever holds its files open,
+    with guards so only D:\ paths and safe targets are touched.
+.DESCRIPTION
     Calls Get-DirectoryLockProcess, then stops each holder. A holder that is a Windows service is stopped with
     Stop-Service so the service host and its other services are left alone. The current process, PID 0 and 4,
     core system processes and Restart Manager critical processes are skipped. A process is only stopped when its
     start time still matches the Restart Manager result, so a reused PID is never hit. Supports -WhatIf.
-    .PARAMETER Path
+.PARAMETER Path
     Directory to check. A drive root or share root is refused.
-    .PARAMETER TimeoutSeconds
+.PARAMETER TimeoutSeconds
     Seconds to wait for a stopped process to exit before it is reported as failed.
-    .OUTPUTS
+.PARAMETER AllowedDrive
+    Drive letter the directory must be on. Any path on another drive or a UNC path is refused before any
+    process is touched.
+.OUTPUTS
     One object per holder: ProcessId, ProcessName, ApplicationType, ServiceName, ExecutablePath, Action, Result,
     Detail. Result is Stopped, Failed or Skipped.
-    #>
+#>
+function Stop-DirectoryLockProcess {
     [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory)][string]$Path,
-        [ValidateRange(1, 300)][int]$TimeoutSeconds = 15
+        [ValidateRange(1, 300)][int]$TimeoutSeconds = 15,
+        [ValidatePattern('^[A-Za-z]$')][string]$AllowedDrive = 'D'
     )
 
-    $Lockers = @(Get-DirectoryLockProcess -Path $Path)
+    $Resolved = Resolve-Path -LiteralPath $Path -ErrorAction SilentlyContinue
+    if (-not $Resolved) {
+        Write-Error -Message "Directory not found: $Path" -ErrorAction Stop
+    }
+    $FullPath = [System.IO.Path]::GetFullPath($Resolved.ProviderPath)
+    if ([System.IO.Path]::GetPathRoot($FullPath) -ine "${AllowedDrive}:\") {
+        Write-Error -Message "Refusing to stop processes outside ${AllowedDrive}:\ : $FullPath" -ErrorAction Stop
+    }
+
+    $Lockers = @(Get-DirectoryLockProcess -Path $FullPath)
     if ($Lockers.Count -eq 0) {
         Write-Information -MessageData "No processes hold files open under $Path" -InformationAction Continue
         return
