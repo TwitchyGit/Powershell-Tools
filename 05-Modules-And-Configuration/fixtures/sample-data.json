@@ -1,0 +1,21 @@
+{
+  "purpose": "Module import and configuration examples.",
+  "configuration": {
+    "environment": "NONPROD",
+    "paths": {
+      "log": ".sample-logs",
+      "output": ".sample-training-data"
+    },
+    "tokenPrefix": "sample_"
+  },
+  "users": [
+    {
+      "userName": "svc-training-nonprod",
+      "role": "service"
+    },
+    {
+      "userName": "ops-training",
+      "role": "operator"
+    }
+  ]
+}

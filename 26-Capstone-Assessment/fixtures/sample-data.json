@@ -1,0 +1,30 @@
+{
+  "Assessment": {
+    "Name": "Local deployment readiness exercise",
+    "RequiredSections": [
+      "Validation",
+      "Logging",
+      "Security",
+      "REST",
+      "Report"
+    ],
+    "Submissions": [
+      {
+        "Learner": "Asha",
+        "Validation": true,
+        "Logging": true,
+        "Security": true,
+        "REST": true,
+        "Report": true
+      },
+      {
+        "Learner": "Ben",
+        "Validation": true,
+        "Logging": false,
+        "Security": true,
+        "REST": true,
+        "Report": false
+      }
+    ]
+  }
+}

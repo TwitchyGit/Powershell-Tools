@@ -1,0 +1,24 @@
+{
+  "Incidents": [
+    {
+      "Id": "INC-1001",
+      "Symptom": "Deployment report missing item",
+      "Evidence": [
+        "Verbose log",
+        "Input manifest",
+        "Validation result"
+      ],
+      "LikelyLayer": "Data"
+    },
+    {
+      "Id": "INC-1002",
+      "Symptom": "Native command failed on one host",
+      "Evidence": [
+        "LASTEXITCODE",
+        "stderr sample",
+        "platform details"
+      ],
+      "LikelyLayer": "Runtime"
+    }
+  ]
+}

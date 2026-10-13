@@ -1,0 +1,21 @@
+{
+  "purpose": "Local events for logging and diagnostic training.",
+  "runId": "training-run-001",
+  "events": [
+    {
+      "level": "Information",
+      "message": "Started package scan",
+      "secret": "sample-secret-not-logged"
+    },
+    {
+      "level": "Warning",
+      "message": "Package skipped because fixture path is missing",
+      "secret": "sample-secret-not-logged"
+    },
+    {
+      "level": "Error",
+      "message": "Fixture validation failed",
+      "secret": "sample-secret-not-logged"
+    }
+  ]
+}

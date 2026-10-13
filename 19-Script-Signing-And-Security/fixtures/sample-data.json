@@ -1,0 +1,28 @@
+{
+  "Scripts": [
+    {
+      "Path": "Deploy-Training.ps1",
+      "SignatureStatus": "Valid",
+      "Publisher": "CN=Contoso Training Code Signing",
+      "ExecutionPolicy": "AllSigned",
+      "HashMatches": true
+    },
+    {
+      "Path": "Investigate-Run.ps1",
+      "SignatureStatus": "NotSigned",
+      "Publisher": null,
+      "ExecutionPolicy": "RemoteSigned",
+      "HashMatches": true
+    },
+    {
+      "Path": "Legacy-Helper.ps1",
+      "SignatureStatus": "HashMismatch",
+      "Publisher": "CN=Old Training Certificate",
+      "ExecutionPolicy": "AllSigned",
+      "HashMatches": false
+    }
+  ],
+  "AllowedPublishers": [
+    "CN=Contoso Training Code Signing"
+  ]
+}

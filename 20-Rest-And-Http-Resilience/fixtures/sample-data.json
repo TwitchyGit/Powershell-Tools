@@ -1,0 +1,39 @@
+{
+  "Requests": [
+    {
+      "Name": "FirstPage",
+      "StatusCode": 200,
+      "ContentType": "application/json",
+      "Body": "{\"items\":[{\"id\":101},{\"id\":102}],\"next\":\"/api/items?page=2\"}",
+      "RetryAfterSeconds": 0
+    },
+    {
+      "Name": "ExpiredToken",
+      "StatusCode": 401,
+      "ContentType": "application/json",
+      "Body": "{\"error\":\"token_expired\"}",
+      "RetryAfterSeconds": 0
+    },
+    {
+      "Name": "Throttled",
+      "StatusCode": 429,
+      "ContentType": "application/json",
+      "Body": "{\"error\":\"rate_limited\"}",
+      "RetryAfterSeconds": 30
+    },
+    {
+      "Name": "Malformed",
+      "StatusCode": 200,
+      "ContentType": "application/json",
+      "Body": "{not valid json}",
+      "RetryAfterSeconds": 0
+    },
+    {
+      "Name": "WrongType",
+      "StatusCode": 200,
+      "ContentType": "text/html",
+      "Body": "<html>login</html>",
+      "RetryAfterSeconds": 0
+    }
+  ]
+}

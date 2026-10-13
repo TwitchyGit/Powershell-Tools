@@ -1,0 +1,45 @@
+{
+  "purpose": "Local values for language fundamentals examples.",
+  "numbers": [
+    1,
+    2,
+    3,
+    5,
+    8
+  ],
+  "words": [
+    "alpha",
+    "beta",
+    "release",
+    "rollback"
+  ],
+  "states": [
+    "New",
+    "Running",
+    "Complete"
+  ],
+  "dateExamples": [
+    {
+      "name": "retention-start",
+      "date": "2026-01-01",
+      "daysToKeep": 30
+    },
+    {
+      "name": "audit-window",
+      "date": "2026-09-15",
+      "daysToKeep": 7
+    }
+  ],
+  "classItems": [
+    {
+      "name": "Pipeline",
+      "category": "Core",
+      "level": 2
+    },
+    {
+      "name": "Classes",
+      "category": "Language",
+      "level": 4
+    }
+  ]
+}

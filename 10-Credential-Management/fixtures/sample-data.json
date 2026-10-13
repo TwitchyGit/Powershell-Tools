@@ -1,0 +1,25 @@
+{
+  "purpose": "Synthetic credential records for local examples only.",
+  "credentials": [
+    {
+      "userName": "training-user",
+      "secretRef": "sample-secret-001",
+      "store": "clixml"
+    },
+    {
+      "userName": "training-service",
+      "secretRef": "sample-secret-002",
+      "store": "vault"
+    }
+  ],
+  "tokens": [
+    {
+      "name": "short-lived",
+      "expiresInMinutes": 15
+    },
+    {
+      "name": "rotation-test",
+      "expiresInMinutes": 60
+    }
+  ]
+}

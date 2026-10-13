@@ -1,0 +1,72 @@
+{
+  "purpose": "PowerShell 5.1 to PowerShell 7.6+ upgrade examples",
+  "examples": [
+    {
+      "Pattern": "Runtime executable",
+      "WindowsPowerShell51": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\Deploy.ps1",
+      "PowerShell76": "pwsh -NoProfile -NonInteractive -File ./Deploy.ps1",
+      "Decision": "UpdateRequired",
+      "Reason": "The wrapper should call the intended PowerShell 7 executable for unattended runs."
+    },
+    {
+      "Pattern": "Version check",
+      "WindowsPowerShell51": "if ($PSVersionTable.PSVersion.Major -lt 5) { exit 1 }",
+      "PowerShell76": "if ($PSVersionTable.PSVersion -lt [version] '7.6') { exit 1 }",
+      "Decision": "UpdateRequired",
+      "Reason": "The script should reject older engines before using PowerShell 7 behavior."
+    },
+    {
+      "Pattern": "Active Directory module",
+      "WindowsPowerShell51": "Import-Module ActiveDirectory; Get-ADUser -Identity $SamAccountName",
+      "PowerShell76": "Import-Module ActiveDirectory -UseWindowsPowerShell; Get-ADUser -Identity $SamAccountName",
+      "Decision": "WindowsOnly",
+      "Reason": "The ActiveDirectory module depends on a Windows validation host or compatibility session."
+    },
+    {
+      "Pattern": "Encoding",
+      "WindowsPowerShell51": "$Rows | Export-Csv -Path .\\report.csv -NoTypeInformation",
+      "PowerShell76": "$Rows | Export-Csv -Path ./report.csv -NoTypeInformation -Encoding utf8",
+      "Decision": "UpdateRequired",
+      "Reason": "Text encoding should be explicit when files cross tools or platforms."
+    },
+    {
+      "Pattern": "Path building",
+      "WindowsPowerShell51": "$LogPath = \"$PSScriptRoot\\Logs\\$RunId.log\"",
+      "PowerShell76": "$LogPath = Join-Path -Path $PSScriptRoot -ChildPath \"Logs/$RunId.log\"",
+      "Decision": "UpdateRequired",
+      "Reason": "Provider-aware paths avoid hard-coded separators and drive assumptions."
+    },
+    {
+      "Pattern": "Native command exit",
+      "WindowsPowerShell51": "git clone $Repository $TargetPath; if ($LASTEXITCODE -ne 0) { exit 1 }",
+      "PowerShell76": "$Output = & git clone $Repository $TargetPath 2>&1; if ($LASTEXITCODE -ne 0) { exit 1 }",
+      "Decision": "LiveValidationRequired",
+      "Reason": "Static review can check exit handling, but a real native command still needs controlled validation."
+    },
+    {
+      "Pattern": "JSON depth",
+      "WindowsPowerShell51": "$Report | ConvertTo-Json | Set-Content -Path .\\report.json",
+      "PowerShell76": "$Report | ConvertTo-Json -Depth 10 | Set-Content -Path ./report.json -Encoding utf8",
+      "Decision": "UpdateRequired",
+      "Reason": "Nested data and output encoding should be explicit."
+    },
+    {
+      "Pattern": "Information output",
+      "WindowsPowerShell51": "Write-Host \"Deploying $PackageName\"",
+      "PowerShell76": "Write-Information -MessageData \"Deploying\"; [pscustomobject]@{ PackageName = $PackageName }",
+      "Decision": "UpdateRequired",
+      "Reason": "Automation should receive redirectable streams and structured objects."
+    }
+  ],
+  "checklist": [
+    "Entry point uses pwsh where PowerShell 7.6+ is required.",
+    "Script starts with CmdletBinding before param.",
+    "Output is structured objects.",
+    "Native command exit codes are checked.",
+    "File encoding is explicit.",
+    "Paths use Join-Path or provider-aware APIs.",
+    "Windows-only modules and providers are named as boundaries.",
+    "Parser checks, fixture checks and live checks are reported separately.",
+    "Entry scripts exit 0 for success and 1 for failure."
+  ]
+}

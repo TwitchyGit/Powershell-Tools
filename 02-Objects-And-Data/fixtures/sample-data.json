@@ -1,0 +1,29 @@
+{
+  "purpose": "Object, hashtable, CSV, JSON, XML and PSD examples.",
+  "records": [
+    {
+      "name": "Pipeline",
+      "category": "Core",
+      "level": 2,
+      "enabled": true
+    },
+    {
+      "name": "Objects",
+      "category": "Data",
+      "level": 3,
+      "enabled": true
+    },
+    {
+      "name": "Formatting",
+      "category": "Output",
+      "level": 2,
+      "enabled": false
+    }
+  ],
+  "settings": {
+    "environment": "NONPROD",
+    "owner": "training",
+    "retryCount": 2
+  },
+  "xml": "<course><topic name=\"Pipeline\" level=\"2\" /></course>"
+}

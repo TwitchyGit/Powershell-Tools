@@ -1,0 +1,32 @@
+{
+  "Failures": [
+    {
+      "Operation": "ReadConfig",
+      "Category": "Terminating",
+      "Message": "Configuration file is missing",
+      "NativeExitCode": 0,
+      "Retryable": false
+    },
+    {
+      "Operation": "CopyOptionalLog",
+      "Category": "NonTerminating",
+      "Message": "Optional log file was not found",
+      "NativeExitCode": 0,
+      "Retryable": false
+    },
+    {
+      "Operation": "RunNativeTool",
+      "Category": "NativeExit",
+      "Message": "Native command returned a failure code",
+      "NativeExitCode": 2,
+      "Retryable": true
+    },
+    {
+      "Operation": "CallTrainingApi",
+      "Category": "Transient",
+      "Message": "Synthetic service returned throttling",
+      "NativeExitCode": 0,
+      "Retryable": true
+    }
+  ]
+}

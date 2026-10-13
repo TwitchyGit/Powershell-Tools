@@ -1,0 +1,26 @@
+{
+  "purpose": "Local deployment and Git-shaped examples without a remote.",
+  "repositories": [
+    {
+      "name": "ToolA",
+      "branch": "main",
+      "version": "1.0.0"
+    },
+    {
+      "name": "ToolB",
+      "branch": "release",
+      "version": "1.1.0"
+    }
+  ],
+  "targets": [
+    {
+      "name": "localhost",
+      "path": ".sample-deployments/ToolA"
+    },
+    {
+      "name": "training-host",
+      "path": ".sample-deployments/ToolB"
+    }
+  ],
+  "token": "sample_training_token"
+}

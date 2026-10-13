@@ -1,0 +1,42 @@
+{
+  "purpose": "AD-shaped records for local examples only.",
+  "users": [
+    {
+      "samAccountName": "jane.training",
+      "enabled": true,
+      "department": "Operations"
+    },
+    {
+      "samAccountName": "mark.training",
+      "enabled": false,
+      "department": "Support"
+    }
+  ],
+  "computers": [
+    {
+      "name": "TRAINING-PC01",
+      "enabled": true,
+      "lastLogonDays": 4
+    },
+    {
+      "name": "TRAINING-PC02",
+      "enabled": false,
+      "lastLogonDays": 92
+    }
+  ],
+  "groups": [
+    {
+      "name": "Training-Readers",
+      "members": [
+        "jane.training"
+      ]
+    },
+    {
+      "name": "Training-Operators",
+      "members": [
+        "jane.training",
+        "mark.training"
+      ]
+    }
+  ]
+}

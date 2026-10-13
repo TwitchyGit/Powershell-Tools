@@ -1,0 +1,19 @@
+{
+  "purpose": "Drive mapping examples that should run with WhatIf by default.",
+  "mappings": [
+    {
+      "name": "TrainingShare",
+      "driveName": "T",
+      "root": "\\\\fileserver.example\\training"
+    },
+    {
+      "name": "ReportShare",
+      "driveName": "R",
+      "root": "\\\\fileserver.example\\reports"
+    }
+  ],
+  "safeMode": {
+    "useWhatIf": true,
+    "requiresWindows": true
+  }
+}

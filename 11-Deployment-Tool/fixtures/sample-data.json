@@ -1,0 +1,19 @@
+{
+  "purpose": "Deployment tool examples that match the existing fixture model.",
+  "runs": [
+    {
+      "mode": "ReportOnly",
+      "environment": "NONPROD",
+      "expectedAction": "Plan"
+    },
+    {
+      "mode": "Unattended",
+      "environment": "NONPROD",
+      "expectedAction": "Simulate"
+    }
+  ],
+  "report": {
+    "path": ".sample-state/deployment-report.json",
+    "expectedStageResults": 6
+  }
+}

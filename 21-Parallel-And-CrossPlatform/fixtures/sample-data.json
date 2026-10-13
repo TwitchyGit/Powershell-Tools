@@ -1,0 +1,34 @@
+{
+  "Tasks": [
+    {
+      "Name": "InventoryFiles",
+      "EstimatedSeconds": 6,
+      "UsesSharedState": false,
+      "WindowsOnly": false
+    },
+    {
+      "Name": "QueryRegistry",
+      "EstimatedSeconds": 4,
+      "UsesSharedState": false,
+      "WindowsOnly": true
+    },
+    {
+      "Name": "UpdateSharedCounter",
+      "EstimatedSeconds": 2,
+      "UsesSharedState": true,
+      "WindowsOnly": false
+    },
+    {
+      "Name": "NormalizePaths",
+      "EstimatedSeconds": 3,
+      "UsesSharedState": false,
+      "WindowsOnly": false
+    }
+  ],
+  "Platforms": [
+    "Windows",
+    "macOS",
+    "Linux"
+  ],
+  "ThrottleLimit": 2
+}

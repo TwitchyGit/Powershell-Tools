@@ -1,0 +1,22 @@
+{
+  "purpose": "Local remoting and scheduler-shaped examples without live connections.",
+  "remoting": [
+    {
+      "computerName": "training-host-01",
+      "authentication": "Kerberos",
+      "useSsl": false
+    },
+    {
+      "computerName": "training-host-02",
+      "authentication": "Negotiate",
+      "useSsl": true
+    }
+  ],
+  "scheduledRuns": [
+    {
+      "name": "NightlyTrainingRun",
+      "executable": "pwsh.exe",
+      "arguments": "-NoProfile -NonInteractive -File Invoke-TrainingCourse.ps1"
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "purpose": "Local file, process, native command and REST-shaped examples.",
+  "files": [
+    {
+      "name": "alpha.txt",
+      "content": "alpha training content"
+    },
+    {
+      "name": "beta.log",
+      "content": "beta training log"
+    },
+    {
+      "name": "report.json",
+      "content": "{\"status\":\"Ready\"}"
+    }
+  ],
+  "environment": {
+    "COURSE_ENV": "NONPROD",
+    "COURSE_OWNER": "training"
+  },
+  "restResponse": {
+    "statusCode": 200,
+    "contentType": "application/json",
+    "body": {
+      "message": "sample only"
+    }
+  }
+}

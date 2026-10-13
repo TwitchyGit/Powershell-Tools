@@ -1,0 +1,24 @@
+{
+  "Findings": [
+    {
+      "Area": "Secret",
+      "Value": "Plain text password in log",
+      "Severity": "High"
+    },
+    {
+      "Area": "TempFile",
+      "Value": "/tmp/training-output.txt",
+      "Severity": "Medium"
+    },
+    {
+      "Area": "Tls",
+      "Value": "Certificate validation bypass requested",
+      "Severity": "High"
+    },
+    {
+      "Area": "Privilege",
+      "Value": "Administrator role requested for read-only task",
+      "Severity": "High"
+    }
+  ]
+}

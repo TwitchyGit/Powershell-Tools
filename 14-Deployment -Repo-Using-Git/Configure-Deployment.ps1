@@ -17,38 +17,29 @@ try {
     . "$PSScriptRoot\DeploymentSettings.ps1"
 
     if ([string]::IsNullOrWhiteSpace($Env)) {
-        $Env = Read-Host -Prompt 'Environment (NONPROD, PROD)'
-    }
-
-    if ($null -eq $ServiceCredential) {
-        $ServiceCredential = Get-Credential -Message 'Service account for this environment'
-    }
-
-    if ($null -eq $AdministratorCredential) {
-        $AdministratorCredential = Get-Credential -Message 'Credential vault administrator account'
+        $Env = 'NONPROD'
     }
 
     $Profile = Get-EnvironmentProfile -Env $Env
-    $Packages = Get-CheckedCatalogue -RepoName $RepoName
-    $BackupServiceAccount = $ServiceCredential.UserName
-    if ($Profile.Name -ne 'PROD') {
-        $BackupServiceAccount = 'backup-service'
+    $SamplePath = Join-Path -Path $PSScriptRoot -ChildPath 'fixtures/sample-data.json'
+    $Sample = Get-Content -Path $SamplePath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    $Packages = $Sample.packages
+    if ($RepoName -and $RepoName.Count -gt 0) {
+        $Packages = $Packages | Where-Object { $_.name -in $RepoName }
     }
 
-    Write-Output "Environment: $($Profile.Name)"
-    Write-Output "Service account: $($ServiceCredential.UserName)"
-    Write-Output "Backup service account: $BackupServiceAccount"
-    Write-Output "Packages: $(($Packages.Name) -join ', ')"
-    $null = Read-Host -Prompt 'Press return to continue'
+    foreach ($Package in $Packages) {
+        [pscustomobject]@{
+            Stage = 'DeploymentConfigurationTraining'
+            Environment = $Profile.Name
+            ServiceAccount = 'svc-training-nonprod'
+            BackupServiceAccount = 'backup-service'
+            Package = $Package.name
+            Action = 'Apply setup recipe with synthetic credentials and no live remoting.'
+        }
+    }
 
-    $Configurator = [DeploymentConfigurator]::new(
-        $Profile,
-        $Packages,
-        $ServiceCredential,
-        $AdministratorCredential,
-        $BackupServiceAccount
-    )
-    exit $Configurator.Run()
+    exit 0
 } catch {
     Write-Error -Message "Configurator stopped: $($_.Exception.Message)"
     exit 1

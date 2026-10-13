@@ -1,0 +1,29 @@
+{
+  "purpose": "Pipeline input, validation, filtering and output examples.",
+  "items": [
+    {
+      "name": "alpha",
+      "status": "Ready",
+      "priority": 1
+    },
+    {
+      "name": "beta",
+      "status": "Hold",
+      "priority": 3
+    },
+    {
+      "name": "gamma",
+      "status": "Ready",
+      "priority": 2
+    }
+  ],
+  "labels": [
+    "safe-a",
+    "safe-b",
+    "safe-c"
+  ],
+  "thresholds": {
+    "low": 1,
+    "high": 3
+  }
+}

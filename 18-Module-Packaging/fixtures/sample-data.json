@@ -1,0 +1,35 @@
+{
+  "Module": {
+    "Name": "Contoso.Training.Tools",
+    "Version": "1.4.0",
+    "RootModule": "Contoso.Training.Tools.psm1",
+    "CompatiblePSEditions": [
+      "Core",
+      "Desktop"
+    ],
+    "RequiredModules": [
+      {
+        "Name": "Microsoft.PowerShell.SecretManagement",
+        "MinimumVersion": "1.1.2"
+      }
+    ],
+    "FunctionsToExport": [
+      "Get-TrainingInventory",
+      "Test-TrainingManifest",
+      "New-TrainingReport"
+    ],
+    "PrivateFunctions": [
+      "ConvertTo-TrainingState",
+      "Resolve-TrainingPath"
+    ],
+    "Files": [
+      "Contoso.Training.Tools.psd1",
+      "Contoso.Training.Tools.psm1",
+      "Public/Get-TrainingInventory.ps1",
+      "Public/Test-TrainingManifest.ps1",
+      "Public/New-TrainingReport.ps1",
+      "Private/ConvertTo-TrainingState.ps1",
+      "Private/Resolve-TrainingPath.ps1"
+    ]
+  }
+}

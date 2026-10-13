@@ -1,0 +1,23 @@
+{
+  "Commands": [
+    {
+      "Name": "Get-TrainingRun",
+      "Parameter": "Environment",
+      "Choices": [
+        "NONPROD",
+        "TEST",
+        "LAB"
+      ]
+    },
+    {
+      "Name": "Start-TrainingReport",
+      "Parameter": "Format",
+      "Choices": [
+        "Json",
+        "Csv",
+        "Table"
+      ]
+    }
+  ],
+  "Input": "N"
+}

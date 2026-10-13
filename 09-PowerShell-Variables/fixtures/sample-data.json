@@ -1,0 +1,25 @@
+{
+  "purpose": "Variable behavior examples for markdown and future scripts.",
+  "scriptVariables": {
+    "StartDir": "C:/Training",
+    "LogDir": "C:/Training/Logs"
+  },
+  "preferenceVariables": {
+    "ErrorActionPreference": "Stop",
+    "VerbosePreference": "Continue"
+  },
+  "environmentVariables": {
+    "COURSE_ENV": "NONPROD",
+    "COURSE_RUN_ID": "sample-001"
+  },
+  "scopeExamples": [
+    {
+      "name": "local",
+      "value": "function value"
+    },
+    {
+      "name": "script",
+      "value": "script value"
+    }
+  ]
+}

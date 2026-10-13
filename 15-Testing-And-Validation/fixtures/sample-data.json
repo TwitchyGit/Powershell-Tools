@@ -1,0 +1,24 @@
+{
+  "purpose": "Local test cases for validation and assertion training.",
+  "cases": [
+    {
+      "name": "valid-package",
+      "path": "C:/Training/PackageA",
+      "expectedValid": true
+    },
+    {
+      "name": "unsafe-parent",
+      "path": "../PackageB",
+      "expectedValid": false
+    },
+    {
+      "name": "wrong-drive",
+      "path": "Z:/PackageC",
+      "expectedValid": false
+    }
+  ],
+  "expected": {
+    "total": 3,
+    "passed": 3
+  }
+}

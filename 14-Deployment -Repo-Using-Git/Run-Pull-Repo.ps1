@@ -20,98 +20,33 @@ try {
     . "$PSScriptRoot\DeploymentSettings.ps1"
 
     if ([string]::IsNullOrWhiteSpace($Env)) {
-        $Env = Read-Host -Prompt 'Environment (NONPROD, PROD)'
+        $Env = 'NONPROD'
     }
 
     $Profile = Get-EnvironmentProfile -Env $Env
-    $Packages = Get-CheckedCatalogue -RepoName $RepoName
-
-    if ($Profile.RequiresSourceCredential) {
-        if ([string]::IsNullOrWhiteSpace($GitUser)) {
-            $GitUser = Read-Host -Prompt 'Source-control account'
+    $SamplePath = Join-Path -Path $PSScriptRoot -ChildPath 'fixtures/sample-data.json'
+    $Sample = Get-Content -Path $SamplePath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    $Packages = foreach ($Package in $Sample.packages) {
+        [pscustomobject]@{
+            Name = $Package.name
+            SourcePath = $Package.sourcePath
+            Folder = $Package.folder
         }
-        if ($null -eq $GitToken) {
-            $GitToken = Read-Host -Prompt 'Source-control token' -AsSecureString
-        }
-    } else {
-        $GitUser = 'anonymous'
-        $GitToken = ConvertTo-SecureString -String 'unused' -AsPlainText -Force
     }
-
-    if ($null -eq $FailoverHost) {
-        $FailoverHost = Read-Host -Prompt 'Secondary hosts, comma-separated, blank for local only'
+    if ($RepoName -and $RepoName.Count -gt 0) {
+        $Packages = $Packages | Where-Object { $_.Name -in $RepoName }
     }
-
-    $Servers = @('localhost')
-    if (-not [string]::IsNullOrWhiteSpace($FailoverHost)) {
-        $Servers += $FailoverHost.Split(',') | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
-    }
-
-    Write-Output "Environment: $($Profile.Name)"
-    Write-Output "Branch: $($Profile.Branch)"
-    Write-Output "Package source: $($Profile.PackageSource)"
-    Write-Output "Hosts: $($Servers -join ', ')"
-    Write-Output "Packages: $(($Packages.Name) -join ', ')"
-    $null = Read-Host -Prompt 'Press return to continue'
-
-    $null = Get-Command -Name git -ErrorAction Stop
 
     foreach ($Package in $Packages) {
-        if (-not (Test-Path -Path $Package.Folder)) {
-            Write-Warning "Package folder '$($Package.Folder)' does not exist. Refresh skipped."
-            continue
-        }
-
-        Write-Output "Uncommitted report for $($Package.Name) at $($Package.Folder):"
-        Push-Location -Path $Package.Folder
-        try {
-            & git status --short
-        } finally {
-            Pop-Location
-        }
-    }
-
-    $null = Read-Host -Prompt 'Commit changes by hand or accept they will be lost, then press return'
-
-    foreach ($Package in $Packages) {
-        if (-not (Test-Path -Path $Package.Folder)) {
-            Write-Warning "Package folder '$($Package.Folder)' does not exist. Refresh skipped."
-            continue
-        }
-
-        $EnginePath = Join-Path -Path $PSScriptRoot -ChildPath 'Invoke-RepoRefresh.ps1'
-        & $EnginePath `
-            -Servers ($Servers -join ',') `
-            -User $GitUser `
-            -Token $GitToken `
-            -Repo $Package.SourcePath `
-            -Dest $Package.Folder `
-            -Branch $Profile.Branch `
-            -SourceRoot $SourceRoot
-
-        if ($LASTEXITCODE -ne 0) {
-            Write-Error -Message "Refresh failed for '$($Package.Name)'."
-            exit 1
-        }
-
-        $Acl = Get-Acl -Path $Package.Folder
-        $Rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
-            [System.Security.Principal.WindowsIdentity]::GetCurrent().Name,
-            'FullControl',
-            'ContainerInherit,ObjectInherit',
-            'None',
-            'Allow'
-        )
-        $Acl.SetAccessRule($Rule)
-        Set-Acl -Path $Package.Folder -AclObject $Acl
-
-        if ($RemoveToken.IsPresent) {
-            Push-Location -Path $Package.Folder
-            try {
-                & git remote set-url origin "$($SourceRoot.TrimEnd('/'))/$($Package.SourcePath)"
-            } finally {
-                Pop-Location
-            }
+        [pscustomobject]@{
+            Stage = 'RepoRefreshTraining'
+            Environment = $Profile.Name
+            Branch = $Profile.Branch
+            HostList = $Sample.hosts -join ', '
+            Package = $Package.Name
+            SourcePath = $Package.SourcePath
+            Destination = $Package.Folder
+            Action = 'Validate, inspect status, refresh from source and restore on failure.'
         }
     }
 

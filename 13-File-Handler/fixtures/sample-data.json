@@ -1,0 +1,22 @@
+{
+  "purpose": "File-lock examples for Windows Restart Manager demonstrations.",
+  "directories": [
+    {
+      "name": "PackageA",
+      "path": "C:/Training/PackageA",
+      "lockedBy": [
+        "sample-service"
+      ]
+    },
+    {
+      "name": "PackageB",
+      "path": "C:/Training/PackageB",
+      "lockedBy": []
+    }
+  ],
+  "safeMode": {
+    "useWhatIf": true,
+    "requiresWindows": true,
+    "requiresElevationForFullResults": true
+  }
+}

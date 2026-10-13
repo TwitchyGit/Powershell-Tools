@@ -1,0 +1,31 @@
+{
+  "purpose": "Repo refresh examples without a live remote.",
+  "packages": [
+    {
+      "name": "Repo1",
+      "sourcePath": "training/repo1.git",
+      "folder": "C:/Training/Repo1"
+    },
+    {
+      "name": "Repo2",
+      "sourcePath": "training/repo2.git",
+      "folder": "C:/Training/Repo2"
+    }
+  ],
+  "environments": [
+    {
+      "name": "NONPROD",
+      "branch": "main",
+      "requiresSourceCredential": false
+    },
+    {
+      "name": "PROD",
+      "branch": "release",
+      "requiresSourceCredential": true
+    }
+  ],
+  "hosts": [
+    "localhost",
+    "training-secondary"
+  ]
+}

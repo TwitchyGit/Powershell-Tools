@@ -1,0 +1,37 @@
+{
+  "purpose": "CyberArk-shaped and backup-shaped sample data for local runs only.",
+  "safes": [
+    {
+      "safeName": "TRAINING_SAFE_A",
+      "accountCount": 3,
+      "status": "Ready"
+    },
+    {
+      "safeName": "TRAINING_SAFE_B",
+      "accountCount": 0,
+      "status": "Empty"
+    }
+  ],
+  "failedObjects": [
+    {
+      "objectName": "account-a",
+      "safeName": "TRAINING_SAFE_A",
+      "reason": "Missing platform"
+    },
+    {
+      "objectName": "account-b",
+      "safeName": "TRAINING_SAFE_A",
+      "reason": "Password overdue"
+    }
+  ],
+  "backupRuns": [
+    {
+      "runId": "backup-001",
+      "result": "Success"
+    },
+    {
+      "runId": "backup-002",
+      "result": "Warning"
+    }
+  ]
+}
