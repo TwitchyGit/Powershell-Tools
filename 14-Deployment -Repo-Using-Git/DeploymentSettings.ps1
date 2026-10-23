@@ -96,6 +96,78 @@ function Resolve-RepoDeployment {
 
 <#
 .SYNOPSIS
+    Runs a command as the service account with a full logon, so network resources are reachable without
+    second-hop delegation.
+#>
+function Invoke-AsServiceAccount {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][PSCredential]$ServiceCredential,
+        [Parameter(Mandatory)][PSCredential]$AdminUser,
+        [Parameter(Mandatory)][string]$WorkingDirectory,
+        [Parameter(Mandatory)][string]$CommandText
+    )
+
+    # The admin credential travels on stdin so it never appears on a command line, in the environment or on disk
+    $Script = @"
+`$ErrorActionPreference = 'Stop'
+`$AdminName  = [Console]::In.ReadLine()
+`$AdminPlain = [Console]::In.ReadLine()
+`$AdminUser  = [pscredential]::new(`$AdminName, (ConvertTo-SecureString -String `$AdminPlain -AsPlainText -Force))
+`$AdminPlain = `$null
+`$global:LASTEXITCODE = 0
+try {
+$CommandText
+    exit [int]`$LASTEXITCODE
+} catch {
+    [Console]::Error.WriteLine(`$_.Exception.Message)
+    exit 1
+}
+"@
+
+    $UserName = $ServiceCredential.UserName
+    $Domain   = ''
+    if ($UserName -match '^(?<Domain>[^\\]+)\\(?<Name>.+)$') {
+        $Domain   = $Matches.Domain
+        $UserName = $Matches.Name
+    }
+
+    $StartInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $StartInfo.FileName = Join-Path -Path $PSHOME -ChildPath 'pwsh.exe'
+    foreach ($Argument in '-NoProfile', '-NonInteractive', '-EncodedCommand',
+        [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($Script))) {
+        $StartInfo.ArgumentList.Add($Argument)
+    }
+    $StartInfo.UserName               = $UserName
+    $StartInfo.Domain                 = $Domain
+    $StartInfo.Password               = $ServiceCredential.Password.Copy()
+    $StartInfo.LoadUserProfile        = $true
+    $StartInfo.WorkingDirectory       = $WorkingDirectory
+    $StartInfo.UseShellExecute        = $false
+    $StartInfo.RedirectStandardInput  = $true
+    $StartInfo.RedirectStandardOutput = $true
+    $StartInfo.RedirectStandardError  = $true
+
+    $Process = [System.Diagnostics.Process]::Start($StartInfo)
+    try {
+        $OutputTask = $Process.StandardOutput.ReadToEndAsync()
+        $ErrorTask  = $Process.StandardError.ReadToEndAsync()
+        $Process.StandardInput.WriteLine($AdminUser.UserName)
+        $Process.StandardInput.WriteLine($AdminUser.GetNetworkCredential().Password)
+        $Process.StandardInput.Close()
+        $Process.WaitForExit()
+        [pscustomobject]@{
+            ExitCode = $Process.ExitCode
+            Output   = ($OutputTask.Result + $ErrorTask.Result)
+        }
+    } finally {
+        $Process.Dispose()
+        $StartInfo.Password.Dispose()
+    }
+}
+
+<#
+.SYNOPSIS
     Applies each selected package's configuration and credential setup under the service account so the
     refreshed packages run with the right identity.
 #>
@@ -181,77 +253,61 @@ function Invoke-Configure {
 
     $Failed = [System.Collections.Generic.List[string]]::new()
 
-    # A -Credential remote session is a network logon with no onward credentials, so it fails on a second hop.
-    # A RunAs endpoint gets a full logon as the service account instead.
-    $EndpointName = $null
-    try {
-        if (@($Configure | Where-Object { $_.SetCred }).Count -gt 0) {
-            $EndpointName = "ConfigureAsSvc_$PID"
-            if (Get-PSSessionConfiguration -Name $EndpointName -ErrorAction SilentlyContinue) {
-                Unregister-PSSessionConfiguration -Name $EndpointName -Force -ErrorAction Stop
-            }
-            # WinRM disposes the credential it is given, so register with a copy
-            $RunAsCredential = [pscredential]::new($ServiceCredential.UserName, $ServiceCredential.Password.Copy())
-            $null = Register-PSSessionConfiguration -Name $EndpointName -RunAsCredential $RunAsCredential `
-                -Force -ErrorAction Stop
+    foreach ($Step in $Configure) {
+        $Dest = $Step.Dest
+        $SetConfig = $Step.SetConfig
+        $SetCred = $Step.SetCred
+
+        if (-not (Test-Path -LiteralPath $Dest -PathType Container)) {
+            Write-Warning "$Dest directory does not exist, please create only if the software needs to be installed"
+            continue
         }
 
-        foreach ($Step in $Configure) {
-            $Dest = $Step.Dest
-            $SetConfig = $Step.SetConfig
-            $SetCred = $Step.SetCred
+        Write-Output "`nINFO: Processing configuration steps for $Dest"
 
-            if (-not (Test-Path -LiteralPath $Dest -PathType Container)) {
-                Write-Warning "$Dest directory does not exist, please create only if the software needs to be installed"
-                continue
-            }
+        Push-Location -LiteralPath $Dest
+        $PreviousPreference = $ErrorActionPreference
+        try {
+            $global:LASTEXITCODE = 0
+            $ErrorActionPreference = 'Stop'
+            & $SetConfig
+            $ExitCode = ($LASTEXITCODE -eq 0)
+        } catch {
+            Write-Error -Message "$Dest command failed: $($_.Exception.Message)" -ErrorAction Continue
+            $ExitCode = $false
+        } finally {
+            $ErrorActionPreference = $PreviousPreference
+        }
 
-            Write-Output "`nINFO: Processing configuration steps for $Dest"
+        if (-not $ExitCode) {
+            $Failed.Add($Dest)
+        }
 
-            Push-Location -LiteralPath $Dest
-            $PreviousPreference = $ErrorActionPreference
-            try {
-                $global:LASTEXITCODE = 0
-                $ErrorActionPreference = 'Stop'
-                & $SetConfig
-                $ExitCode = ($LASTEXITCODE -eq 0)
-            } catch {
-                Write-Error -Message "$Dest command failed: $($_.Exception.Message)" -ErrorAction Continue
-                $ExitCode = $false
-            } finally {
-                $ErrorActionPreference = $PreviousPreference
-            }
-
-            if (-not $ExitCode) {
-                $Failed.Add($Dest)
-            }
-
-            try {
-                if ($ExitCode -and $SetCred) {
-                    $global:LASTEXITCODE = 0
-                    try {
-                        $AdminCopy = [pscredential]::new($AdminUser.UserName, $AdminUser.Password.Copy())
-                        $Result = Invoke-Command -ComputerName localhost -ConfigurationName $EndpointName `
-                            -ScriptBlock {
-                                param($Dest, $AdminUser, $RunCommand)
-                                Set-Location $Dest
-                                & ([scriptblock]::Create($RunCommand)) 2>&1 | Out-String
-                            } -ArgumentList $Dest, $AdminCopy, $SetCred -ErrorAction Stop
-                        Write-Output $Result
-                    } catch {
-                        Write-Output ("ERROR: Invoke-Command failed: $($_.Exception.GetType().FullName): " +
-                            "$($_.Exception.Message) $($_.InvocationInfo.PositionMessage)")
+        try {
+            if ($ExitCode -and $SetCred) {
+                try {
+                    $RunParams = @{
+                        ServiceCredential = $ServiceCredential
+                        AdminUser         = $AdminUser
+                        WorkingDirectory  = $Dest
+                        CommandText       = $SetCred.ToString()
                     }
-                } elseif (-not $ExitCode) {
-                    Write-Warning "Skipped credential setup for $Dest as Set-Configuration.ps1 did not complete"
+                    $Run = Invoke-AsServiceAccount @RunParams
+                    Write-Output $Run.Output
+                    if ($Run.ExitCode -ne 0) {
+                        Write-Warning "Credential setup for $Dest exited with code $($Run.ExitCode)"
+                        $Failed.Add($Dest)
+                    }
+                } catch {
+                    Write-Output ("ERROR: Credential setup failed: $($_.Exception.GetType().FullName): " +
+                        "$($_.Exception.Message) $($_.InvocationInfo.PositionMessage)")
+                    $Failed.Add($Dest)
                 }
-            } finally {
-                Pop-Location
+            } elseif (-not $ExitCode) {
+                Write-Warning "Skipped credential setup for $Dest as Set-Configuration.ps1 did not complete"
             }
-        }
-    } finally {
-        if ($EndpointName) {
-            Unregister-PSSessionConfiguration -Name $EndpointName -Force -ErrorAction SilentlyContinue
+        } finally {
+            Pop-Location
         }
     }
 
