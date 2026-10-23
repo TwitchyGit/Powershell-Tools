@@ -9,8 +9,7 @@
 
 [CmdletBinding()]
 param(
-    [ValidateSet('ENG', 'DEV', 'PROD')]
-    [string]$Env,
+    [ValidateSet('ENG', 'DEV', 'PROD')][string]$Env,
     [string[]]$RepoName,
     [PSCredential]$ServiceCredential,
     [PSCredential]$AdminUser
