@@ -132,10 +132,18 @@ $CommandText
         $UserName = $Matches.Name
     }
 
+    # CreateProcessWithLogonW caps the command line at 1024 characters, so the script goes in a file instead
+    # C:\Temp is readable by the service account, unlike the elevated user's own temp folder
+    $ScriptDirectory = 'C:\Temp'
+    if (-not (Test-Path -LiteralPath $ScriptDirectory -PathType Container)) {
+        $null = New-Item -ItemType Directory -Path $ScriptDirectory -Force
+    }
+    $ScriptPath = Join-Path -Path $ScriptDirectory -ChildPath ("configure_" + [guid]::NewGuid() + ".ps1")
+    Set-Content -LiteralPath $ScriptPath -Value $Script
+
     $StartInfo = [System.Diagnostics.ProcessStartInfo]::new()
     $StartInfo.FileName = Join-Path -Path $PSHOME -ChildPath 'pwsh.exe'
-    foreach ($Argument in '-NoProfile', '-NonInteractive', '-EncodedCommand',
-        [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($Script))) {
+    foreach ($Argument in '-NoProfile', '-NonInteractive', '-File', $ScriptPath) {
         $StartInfo.ArgumentList.Add($Argument)
     }
     $StartInfo.UserName               = $UserName
@@ -148,8 +156,9 @@ $CommandText
     $StartInfo.RedirectStandardOutput = $true
     $StartInfo.RedirectStandardError  = $true
 
-    $Process = [System.Diagnostics.Process]::Start($StartInfo)
+    $Process = $null
     try {
+        $Process = [System.Diagnostics.Process]::Start($StartInfo)
         $OutputTask = $Process.StandardOutput.ReadToEndAsync()
         $ErrorTask  = $Process.StandardError.ReadToEndAsync()
         $Process.StandardInput.WriteLine($AdminUser.UserName)
@@ -161,8 +170,11 @@ $CommandText
             Output   = ($OutputTask.Result + $ErrorTask.Result)
         }
     } finally {
-        $Process.Dispose()
+        if ($Process) {
+            $Process.Dispose()
+        }
         $StartInfo.Password.Dispose()
+        Remove-Item -LiteralPath $ScriptPath -Force -ErrorAction SilentlyContinue
     }
 }
 
