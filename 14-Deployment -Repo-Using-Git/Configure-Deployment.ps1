@@ -1,57 +1,30 @@
-using module ./Classes/DeploymentTool.Classes.psm1
-<#
-.SYNOPSIS
-    Collects setup credentials and applies the package configuration recipes.
-#>
-[CmdletBinding()]
-param(
-    [ValidateSet('NONPROD', 'PROD')]
-    [string] $Env,
-    [string[]] $RepoName,
-    [pscredential] $ServiceCredential,
-    [pscredential] $AdministratorCredential
-)
-
-$Script:StartFolder = Get-Location
-try {
-    . "$PSScriptRoot\DeploymentSettings.ps1"
-
-    if ([string]::IsNullOrWhiteSpace($Env)) {
-        $Env = Read-Host -Prompt 'Environment (NONPROD, PROD)'
-    }
-
-    if ($null -eq $ServiceCredential) {
-        $ServiceCredential = Get-Credential -Message 'Service account for this environment'
-    }
-
-    if ($null -eq $AdministratorCredential) {
-        $AdministratorCredential = Get-Credential -Message 'Credential vault administrator account'
-    }
-
-    $Profile = Get-EnvironmentProfile -Env $Env
-    $Packages = Get-CheckedCatalogue -RepoName $RepoName
-    $BackupServiceAccount = $ServiceCredential.UserName
-    if ($Profile.Name -ne 'PROD') {
-        $BackupServiceAccount = 'backup-service'
-    }
-
-    Write-Output "Environment: $($Profile.Name)"
-    Write-Output "Service account: $($ServiceCredential.UserName)"
-    Write-Output "Backup service account: $BackupServiceAccount"
-    Write-Output "Packages: $(($Packages.Name) -join ', ')"
-    $null = Read-Host -Prompt 'Press return to continue'
-
-    $Configurator = [DeploymentConfigurator]::new(
-        $Profile,
-        $Packages,
-        $ServiceCredential,
-        $AdministratorCredential,
-        $BackupServiceAccount
+$Cred = Get-Credential
+function Test-Start {
+    param(
+        [string]$Label,
+        [string]$UserName,
+        [string]$Domain,
+        [bool]$Profile
     )
-    exit $Configurator.Run()
-} catch {
-    Write-Error -Message "Configurator stopped: $($_.Exception.Message)"
-    exit 1
-} finally {
-    Set-Location -Path $Script:StartFolder
+    $Si = [System.Diagnostics.ProcessStartInfo]::new('cmd.exe', '/c whoami')
+    $Si.UserName = $UserName
+    if ($Domain) { $Si.Domain = $Domain }
+    $Si.Password = $Cred.Password.Copy()
+    $Si.LoadUserProfile = $Profile
+    $Si.UseShellExecute = $false
+    $Si.RedirectStandardOutput = $true
+    try {
+        $P = [System.Diagnostics.Process]::Start($Si)
+        "{0}: ok  {1}" -f $Label, $P.StandardOutput.ReadToEnd().Trim()
+        $P.WaitForExit()
+    } catch {
+        "{0}: FAIL  {1}" -f $Label, $_.Exception.InnerException.Message
+    }
 }
+$User = $Cred.UserName
+if ($User -match '^(?<D>[^\\]+)\\(?<N>.+)$') {
+    Test-Start 'split, no profile'   $Matches.N $Matches.D $false
+    Test-Start 'split, profile'      $Matches.N $Matches.D $true
+}
+Test-Start 'raw name, no profile'    $User '' $false
+Test-Start 'raw name, profile'       $User '' $true
