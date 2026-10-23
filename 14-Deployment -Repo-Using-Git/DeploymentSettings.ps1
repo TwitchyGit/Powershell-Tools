@@ -109,27 +109,31 @@ function Invoke-AsServiceAccount {
     )
 
     # The admin credential travels on stdin so it never appears on a command line, in the environment or on disk
-    $Script = @"
-`$ErrorActionPreference = 'Stop'
-`$AdminName  = [Console]::In.ReadLine()
-`$AdminPlain = [Console]::In.ReadLine()
-`$AdminUser  = [pscredential]::new(`$AdminName, (ConvertTo-SecureString -String `$AdminPlain -AsPlainText -Force))
-`$AdminPlain = `$null
-`$global:LASTEXITCODE = 0
+    $Script = @'
+$ErrorActionPreference = 'Stop'
+$AdminName  = [Console]::In.ReadLine()
+$AdminPlain = [Console]::In.ReadLine()
+$AdminUser  = [pscredential]::new($AdminName, (ConvertTo-SecureString -String $AdminPlain -AsPlainText -Force))
+$AdminPlain = $null
+$global:LASTEXITCODE = 0
 try {
-$CommandText
-    exit [int]`$LASTEXITCODE
+__COMMAND__
+    exit [int]$LASTEXITCODE
 } catch {
-    [Console]::Error.WriteLine(`$_.Exception.Message)
+    [Console]::Error.WriteLine($_.Exception.Message)
     exit 1
 }
-"@
+'@.Replace('__COMMAND__', $CommandText)
 
+    # DOMAIN\account is split because Secondary Logon takes the domain separately, a UPN is passed whole
     $UserName = $ServiceCredential.UserName
-    $Domain   = ''
+    $Domain   = $null
     if ($UserName -match '^(?<Domain>[^\\]+)\\(?<Name>.+)$') {
         $Domain   = $Matches.Domain
         $UserName = $Matches.Name
+    } elseif ($UserName -notmatch '^[^@\\\s]+@[^@\\\s]+$') {
+        Write-Error -Message "Service account must be DOMAIN\account or account@domain. Value was '$UserName'" `
+            -ErrorAction Stop
     }
 
     # CreateProcessWithLogonW caps the command line at 1024 characters, so the script goes in a file instead
@@ -147,8 +151,10 @@ $CommandText
         $StartInfo.ArgumentList.Add($Argument)
     }
     $StartInfo.UserName               = $UserName
-    $StartInfo.Domain                 = $Domain
-    $StartInfo.Password               = $ServiceCredential.Password.Copy()
+    if ($Domain) {
+        $StartInfo.Domain = $Domain
+    }
+    $StartInfo.Password              = $ServiceCredential.Password.Copy()
     $StartInfo.LoadUserProfile        = $true
     $StartInfo.WorkingDirectory       = $WorkingDirectory
     $StartInfo.UseShellExecute        = $false
@@ -202,6 +208,7 @@ function Invoke-Configure {
             RepoName = "Repo1"
             Dest    = 'D:\Deployment1\Install'
             SetConfig = {
+                # Repo1 gets the whole PSCredential (full DOMAIN\account or UPN), Repos 2-5 get the bare account name
                 $Params = @{
                     Env            = $Env
                     ServiceAccount = $ServiceCredential
@@ -297,6 +304,7 @@ function Invoke-Configure {
 
         try {
             if ($ExitCode -and $SetCred) {
+                # SetCred logs on as the full ServiceCredential, AdminUser arrives on stdin as entered
                 try {
                     $RunParams = @{
                         ServiceCredential = $ServiceCredential
