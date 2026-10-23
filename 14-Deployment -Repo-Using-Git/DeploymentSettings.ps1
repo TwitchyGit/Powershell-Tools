@@ -33,6 +33,11 @@ $Script:EnvSettings = @{
     }
 }
 
+<#
+.SYNOPSIS
+    Gives one place to read the per-environment tool versions and backup pool, so every package is configured
+    from the same values.
+#>
 function Get-EnvSettings {
     [CmdletBinding()]
     param(
@@ -42,6 +47,11 @@ function Get-EnvSettings {
     $Script:EnvSettings[$Env]
 }
 
+<#
+.SYNOPSIS
+    Checks the package catalogue and the requested -RepoName values up front, so a typo or bad entry stops the run
+    before anything is configured.
+#>
 function Resolve-RepoDeployment {
     [CmdletBinding()]
     param(
@@ -158,6 +168,7 @@ __COMMAND__
     $StartInfo.LoadUserProfile        = $true
     $StartInfo.WorkingDirectory       = $WorkingDirectory
     $StartInfo.UseShellExecute        = $false
+    $StartInfo.CreateNoWindow         = $true
     $StartInfo.RedirectStandardInput  = $true
     $StartInfo.RedirectStandardOutput = $true
     $StartInfo.RedirectStandardError  = $true
