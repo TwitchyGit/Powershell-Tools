@@ -1,60 +1,100 @@
-$Cred = Get-Credential
-$User = $Cred.UserName
-$Name = $User
-$Domain = ''
-if ($User -match '^(?<D>[^\\]+)\\(?<N>.+)$') {
-    $Name = $Matches.N
-    $Domain = $Matches.D
+<#
+.SYNOPSIS
+    Interactive front end that collects credentials and applies environment-specific setup to the refreshed
+    packages
+#>
+
+#Requires -RunAsAdministrator
+#Requires -Version 7.6
+
+[CmdletBinding()]
+param(
+    [ValidateSet('ENG', 'DEV', 'PROD')]
+    [string]$Env,
+    [string[]]$RepoName,
+    [PSCredential]$ServiceCredential,
+    [PSCredential]$AdminUser
+)
+
+$BaseDir       = $PSScriptRoot
+$StartLocation = Get-Location
+$FailStatus    = 0
+
+try {
+    Import-Module -Name (Join-Path -Path $BaseDir -ChildPath 'Config\Configure-Settings.psm1') -Force -ErrorAction Stop
+    $null = Resolve-RepoDeployment -RepoName $RepoName
+} catch {
+    Write-Error -Message "Unable to load the Config module or validate -RepoName: $($_.Exception.Message)" `
+        -ErrorAction Continue
+    exit 1
 }
 
-function Test-Case {
-    param(
-        [string]$Label,
-        [scriptblock]$Setup
-    )
-    $Si = [System.Diagnostics.ProcessStartInfo]::new('cmd.exe', '/c whoami')
-    $Si.UseShellExecute = $false
-    $Si.RedirectStandardOutput = $true
-    $Si.WorkingDirectory = 'C:\Windows\System32'
-    $Si.UserName = $Name
-    if ($Domain) { $Si.Domain = $Domain }
-    & $Setup $Si
-    try {
-        $P = [System.Diagnostics.Process]::Start($Si)
-        "{0}: ok  {1}" -f $Label, $P.StandardOutput.ReadToEnd().Trim()
-        $P.WaitForExit()
-    } catch {
-        "{0}: FAIL  {1}" -f $Label, $_.Exception.InnerException.Message
+if (-not $Env) {
+    Write-Output "`nQuestion: Environment"
+    while (-not $Env) {
+        $Answer = (Read-Host -Prompt "Confirm environment - ENG, DEV, PROD").Trim().ToUpper()
+        if ($Answer -in 'ENG', 'DEV', 'PROD') {
+            $Env = $Answer
+        } else {
+            Write-Output "Invalid environment"
+        }
     }
 }
 
-# 1. Plain-text password skips the SecureString marshalling path
-Test-Case 'clear-text password' { param($Si) $Si.PasswordInClearText = $Cred.GetNetworkCredential().Password }
-
-# 2. Minimal environment block rules out a bad variable in the inherited one
-Test-Case 'minimal environment' {
-    param($Si)
-    $Si.Password = $Cred.Password.Copy()
-    $Si.Environment.Clear()
-    $Si.Environment['SystemRoot'] = $env:SystemRoot
-    $Si.Environment['Path'] = "$env:SystemRoot\System32"
+if (-not $ServiceCredential) {
+    $ServiceCredential = Get-Credential -Message "Provide the OS Service Account for this environment"
+}
+if (-not $AdminUser) {
+    $AdminUser = Get-Credential -Message "Provide the CyberArk Admin user/password"
+}
+# ServiceCredential must be DOMAIN\account or account@domain for the SetCred logon, AdminUser is used as entered
+$ServiceUser  = $ServiceCredential.UserName
+$IsDomainUser = $ServiceUser -match '^[A-Za-z0-9._-]+\\[^\\/\s@]+$'
+$IsUpn        = $ServiceUser -match '^[^@\\\s]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$'
+if (-not ($IsDomainUser -or $IsUpn)) {
+    Write-Error -Message ("-ServiceCredential user name must be DOMAIN\account or account@domain. " +
+        "Value was '$ServiceUser'") -ErrorAction Continue
+    exit 1
 }
 
-# 3. Fixed working directory with the default SecureString
-Test-Case 'fixed cwd only' { param($Si) $Si.Password = $Cred.Password.Copy() }
+# SetConfig scripts get the bare account name, SetCred logs on with the full ServiceCredential
+$ServiceAccount       = $ServiceCredential.UserName -replace '^.*\\', '' -replace '@.*$', ''
+# PROD backs up with the service account, other environments use the fixed account1
+$ServiceAccountBackup = if ($Env -eq 'PROD') { $ServiceAccount } else { 'account1' }
 
-# 4. Windows API directly: is the logon itself allowed for this account on this host?
-Add-Type -Namespace Win32 -Name Logon -MemberDefinition @'
-[System.Runtime.InteropServices.DllImport("advapi32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
-public static extern bool LogonUser(string user, string domain, string password, int type, int provider, out System.IntPtr token);
-[System.Runtime.InteropServices.DllImport("kernel32.dll")]
-public static extern bool CloseHandle(System.IntPtr handle);
-'@
-foreach ($Type in 2, 3, 4) {
-    $Token = [IntPtr]::Zero
-    $Ok = [Win32.Logon]::LogonUser($Name, $(if ($Domain) { $Domain } else { $null }),
-        $Cred.GetNetworkCredential().Password, $Type, 0, [ref]$Token)
-    $Code = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
-    "LogonUser type ${Type}: ok=$Ok win32error=$Code"
-    if ($Ok) { [void][Win32.Logon]::CloseHandle($Token) }
+$Settings = Get-EnvSettings -Env $Env
+$RepoNameText = if ($RepoName) { ($RepoName -join ',') } else { 'All' }
+
+Write-Output "`nThis will run the configuration on any servers as follows:"
+Write-Output "  Env                = $Env"
+Write-Output "  RepoName           = $RepoNameText"
+Write-Output "  ServiceCredential  = $($ServiceCredential.UserName)"
+Write-Output "  CyberarkAdmin      = $($AdminUser.UserName)"
+Write-Output "  ServiceAccount     = $ServiceAccount"
+Write-Output "  PACLIVersion       = $($Settings.PACLIVersion)"
+Write-Output "  PADRVersion        = $($Settings.PADRVersion)"
+Write-Output "  EVDVersion         = $($Settings.EVDVersion)"
+Write-Output "  BackupPool         = $($Settings.BackupPool)"
+
+Read-Host -Prompt "Enter Yes to continue, or Ctrl-C to stop"
+
+try {
+    # Account names are strings, ServiceCredential and AdminUser stay PSCredentials
+    $ConfigureParams = @{
+        Env                  = $Env
+        ServiceAccount       = $ServiceAccount
+        ServiceAccountBackup = $ServiceAccountBackup
+        ServiceCredential    = $ServiceCredential
+        AdminUser            = $AdminUser
+        RepoName             = $RepoName
+    }
+    Invoke-Configure @ConfigureParams
+} catch {
+    Write-Error -Message "Configure failed for ${Env}: $($_.Exception.Message)" -ErrorAction Continue
+    $FailStatus = 1
 }
+
+Remove-Variable -Name ServiceCredential, AdminUser, ServiceAccount, ServiceAccountBackup
+Set-Location -LiteralPath $StartLocation
+
+exit $FailStatus
