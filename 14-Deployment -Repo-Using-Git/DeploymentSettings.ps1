@@ -112,7 +112,7 @@ function Resolve-RepoDeployment {
 function Invoke-AsServiceAccount {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)][PSCredential]$ServiceCredential,
+        [Parameter(Mandatory)][PSCredential]$ServiceCredentialUPN,
         [Parameter(Mandatory)][PSCredential]$AdminUser,
         [Parameter(Mandatory)][string]$WorkingDirectory,
         [Parameter(Mandatory)][string]$CommandText
@@ -136,7 +136,7 @@ __COMMAND__
 '@.Replace('__COMMAND__', $CommandText)
 
     # DOMAIN\account is split because Secondary Logon takes the domain separately, a UPN is passed whole
-    $UserName = $ServiceCredential.UserName
+    $UserName = $ServiceCredentialUPN.UserName
     $Domain   = $null
     if ($UserName -match '^(?<Domain>[^\\]+)\\(?<Name>.+)$') {
         $Domain   = $Matches.Domain
@@ -164,7 +164,7 @@ __COMMAND__
     if ($Domain) {
         $StartInfo.Domain = $Domain
     }
-    $StartInfo.Password              = $ServiceCredential.Password.Copy()
+    $StartInfo.Password              = $ServiceCredentialUPN.Password.Copy()
     $StartInfo.LoadUserProfile        = $true
     $StartInfo.WorkingDirectory       = $WorkingDirectory
     $StartInfo.UseShellExecute        = $false
@@ -205,8 +205,9 @@ function Invoke-Configure {
     param(
         [Parameter(Mandatory)][ValidateSet('ENG', 'DEV', 'PROD')][string]$Env,
         [Parameter(Mandatory)]$ServiceAccount,
-        [Parameter(Mandatory)]$ServiceAccountBackup,
+        [Parameter(Mandatory)]$ServiceAccountEVD,
         [Parameter(Mandatory)]$ServiceCredential,
+        [Parameter(Mandatory)]$ServiceCredentialUPN,
         [Parameter(Mandatory)]$AdminUser,
         [string[]]$RepoName
     )
@@ -219,7 +220,7 @@ function Invoke-Configure {
             RepoName = "Repo1"
             Dest    = 'D:\Deployment1\Install'
             SetConfig = {
-                # Repo1 gets the whole PSCredential (full DOMAIN\account or UPN), Repos 2-5 get the bare account name
+                # Repos 1 and 3 get a PSCredential with the bare name, Repos 2, 4 and 5 get the bare name string
                 $Params = @{
                     Env            = $Env
                     ServiceAccount = $ServiceCredential
@@ -236,7 +237,7 @@ function Invoke-Configure {
         @{
             RepoName = "Repo3"
             Dest    = 'D:\Deployment3\Install'
-            SetConfig = { .\Set-Configuration.ps1 -Env $Env -ServiceAccount $ServiceAccount }
+            SetConfig = { .\Set-Configuration.ps1 -Env $Env -ServiceAccount $ServiceCredential }
             SetCred = { .\Create-Credentials.ps1 -AdminUser $AdminUser }
         }
         @{
@@ -245,7 +246,7 @@ function Invoke-Configure {
             SetConfig = {
                 $Params = @{
                     Env            = $Env
-                    ServiceAccount = $ServiceAccountBackup
+                    ServiceAccount = $ServiceAccountEVD
                     EVDVersion     = $Settings.EVDVersion
                 }
                 .\Set-Configuration.ps1 @Params
@@ -260,7 +261,7 @@ function Invoke-Configure {
                 if ($LASTEXITCODE -eq 0) {
                     $Params = @{
                         Env            = $Env
-                        ServiceAccount = $ServiceAccountBackup
+                        ServiceAccount = $ServiceAccountEVD
                         Version        = $Settings.PADRVersion
                         BackupPoolName = $Settings.BackupPool
                     }
@@ -315,13 +316,13 @@ function Invoke-Configure {
 
         try {
             if ($ExitCode -and $SetCred) {
-                # SetCred logs on as the full ServiceCredential, AdminUser arrives on stdin as entered
+                # SetCred logs on as ServiceCredentialUPN, AdminUser arrives on stdin as entered
                 try {
                     $RunParams = @{
-                        ServiceCredential = $ServiceCredential
-                        AdminUser         = $AdminUser
-                        WorkingDirectory  = $Dest
-                        CommandText       = $SetCred.ToString()
+                        ServiceCredentialUPN = $ServiceCredentialUPN
+                        AdminUser            = $AdminUser
+                        WorkingDirectory     = $Dest
+                        CommandText          = $SetCred.ToString()
                     }
                     $Run = Invoke-AsServiceAccount @RunParams
                     Write-Output $Run.Output
