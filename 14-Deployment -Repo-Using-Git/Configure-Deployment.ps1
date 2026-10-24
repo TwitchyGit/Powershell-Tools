@@ -56,10 +56,11 @@ if (-not ($IsDomainUser -or $IsUpn)) {
     exit 1
 }
 
-# SetConfig scripts get the bare account name, SetCred logs on with the full ServiceCredential
-$ServiceAccount       = $ServiceCredential.UserName -replace '^.*\\', '' -replace '@.*$', ''
-# PROD backs up with the service account, other environments use the fixed account1
-$ServiceAccountBackup = if ($Env -eq 'PROD') { $ServiceAccount } else { 'account1' }
+# SetConfig scripts get the bare account name, SetCred logs on with the credential as entered
+$ServiceAccount        = $ServiceCredential.UserName -replace '^.*\\', '' -replace '@.*$', ''
+$ServiceCredentialBare = [pscredential]::new($ServiceAccount, $ServiceCredential.Password.Copy())
+# EVD tools use the service account in PROD, other environments use the fixed account1
+$ServiceAccountEVD     = if ($Env -eq 'PROD') { $ServiceAccount } else { 'account1' }
 
 $Settings = Get-EnvSettings -Env $Env
 $RepoNameText = if ($RepoName) { ($RepoName -join ',') } else { 'All' }
@@ -78,12 +79,13 @@ Write-Output "  BackupPool         = $($Settings.BackupPool)"
 Read-Host -Prompt "Enter Yes to continue, or Ctrl-C to stop"
 
 try {
-    # Account names are strings, ServiceCredential and AdminUser stay PSCredentials
+    # Account names are strings, credentials stay PSCredentials: bare for Repos 1 and 3, as entered for SetCred
     $ConfigureParams = @{
         Env                  = $Env
         ServiceAccount       = $ServiceAccount
-        ServiceAccountBackup = $ServiceAccountBackup
-        ServiceCredential    = $ServiceCredential
+        ServiceAccountEVD    = $ServiceAccountEVD
+        ServiceCredential    = $ServiceCredentialBare
+        ServiceCredentialUPN = $ServiceCredential
         AdminUser            = $AdminUser
         RepoName             = $RepoName
     }
@@ -93,7 +95,7 @@ try {
     $FailStatus = 1
 }
 
-Remove-Variable -Name ServiceCredential, AdminUser, ServiceAccount, ServiceAccountBackup
+Remove-Variable -Name ServiceCredential, ServiceCredentialBare, AdminUser, ServiceAccount, ServiceAccountEVD
 Set-Location -LiteralPath $StartLocation
 
 exit $FailStatus
