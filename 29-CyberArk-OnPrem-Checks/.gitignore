@@ -1,0 +1,8 @@
+# Check output
+Output/
+Runs/
+*.csv
+*.log
+
+# Local copy of the settings
+CheckSettings.local.psm1

@@ -11,4 +11,4 @@ pwsh -NoProfile -NonInteractive -File ./Invoke-ExecutionPlanLesson.ps1
 
 ## Training aim
 
-Separate planning from live execution, and make unattended command lines explicit before they run anywhere.
+Separate planning from live execution and make unattended command lines explicit before they run anywhere.
